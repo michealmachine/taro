@@ -154,10 +154,10 @@ func TestSelectBestResource(t *testing.T) {
 	s := NewSearcher(cfg, database, sm, logger)
 
 	tests := []struct {
-		name         string
-		entry        *db.Entry
-		resources    []*db.Resource
-		expectedID   string // ID of expected best resource
+		name       string
+		entry      *db.Entry
+		resources  []*db.Resource
+		expectedID string // ID of expected best resource
 	}{
 		{
 			name: "prefer 1080p over 720p",
@@ -182,7 +182,7 @@ func TestSelectBestResource(t *testing.T) {
 			expectedID: "2", // More seeders wins
 		},
 		{
-			name: "resolution priority: 1080p > 1080i > 720p",
+			name:  "resolution priority: 1080p > 1080i > 720p",
 			entry: &db.Entry{},
 			resources: []*db.Resource{
 				{ID: "1", Resolution: sql.NullString{String: "720p", Valid: true}, Seeders: sql.NullInt64{Int64: 100, Valid: true}},
@@ -237,13 +237,13 @@ func TestSearchProwlarr(t *testing.T) {
 		// Return mock response
 		response := ProwlarrSearchResponse{
 			{
-				Title:       "[SubsPlease] Attack on Titan - 01 (1080p) [ABCD1234].mkv",
-				GUID:        "guid-1",
-				MagnetURL:   "magnet:?xt=urn:btih:1234567890",
-				Size:        1024 * 1024 * 500, // 500MB
-				Seeders:     100,
-				IndexerID:   1,
-				Indexer:     "Nyaa",
+				Title:     "[SubsPlease] Attack on Titan - 01 (1080p) [ABCD1234].mkv",
+				GUID:      "guid-1",
+				MagnetURL: "magnet:?xt=urn:btih:1234567890",
+				Size:      1024 * 1024 * 500, // 500MB
+				Seeders:   100,
+				IndexerID: 1,
+				Indexer:   "Nyaa",
 			},
 			{
 				Title:       "[HorribleSubs] Attack on Titan - 01 (720p).mkv",

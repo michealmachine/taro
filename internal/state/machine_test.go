@@ -58,7 +58,7 @@ func TestStateMachine_ValidTransitions(t *testing.T) {
 		{"needs_selection to cancelled", StatusNeedsSelection, StatusCancelled, false},
 		{"failed to pending", StatusFailed, StatusPending, false},
 		{"failed to downloaded", StatusFailed, StatusDownloaded, false},
-		
+
 		// Invalid transitions
 		{"pending to downloaded", StatusPending, StatusDownloaded, true},
 		{"found to transferred", StatusFound, StatusTransferred, true},
@@ -445,12 +445,12 @@ func TestStateMachine_ConcurrentTransitions(t *testing.T) {
 
 	// Try concurrent transitions (should be serialized by mutex)
 	done := make(chan bool, 2)
-	
+
 	go func() {
 		_ = sm.Transition(ctx, entry.ID, StatusSearching, "concurrent 1")
 		done <- true
 	}()
-	
+
 	go func() {
 		_ = sm.Transition(ctx, entry.ID, StatusSearching, "concurrent 2")
 		done <- true

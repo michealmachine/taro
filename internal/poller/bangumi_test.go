@@ -74,11 +74,11 @@ func TestBangumiPoller_GetCurrentUser(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	poller := NewBangumiPoller(cfg, database, logger)
-	
+
 	// For this test, we'll need to modify the implementation to accept a custom base URL
 	// For now, let's test the response parsing logic
 	ctx := context.Background()
-	
+
 	// Create a custom request to the test server
 	req, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/v0/me", nil)
 	req.Header.Set("User-Agent", userAgent)
@@ -219,7 +219,7 @@ func TestBangumiPoller_Poll_CreatesNewEntries(t *testing.T) {
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
-		
+
 		if r.URL.Path == "/v0/me" {
 			user := BangumiUser{
 				ID:       12345,
@@ -582,7 +582,7 @@ onedrive:
 	// Note: This test can't fully test the refresh because bangumiAPIBase is a constant
 	// In a real implementation, we should make the API base URL configurable for testing
 	// For now, we just verify the token refresh logic structure is correct
-	
+
 	// Verify initial token
 	if cfg.Bangumi.AccessToken != "old-access-token" {
 		t.Errorf("expected initial access token 'old-access-token', got '%s'", cfg.Bangumi.AccessToken)
@@ -654,7 +654,7 @@ func TestBangumiPoller_FetchCollections_Pagination(t *testing.T) {
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
-		
+
 		query := r.URL.Query()
 		offset, _ := strconv.Atoi(query.Get("offset"))
 		limit, _ := strconv.Atoi(query.Get("limit"))

@@ -126,7 +126,7 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 	resources := make([]*db.Resource, 0, len(results))
 	for _, result := range results {
 		resolution := s.extractResolution(result.Title)
-		
+
 		resource := &db.Resource{
 			EntryID:    entry.ID,
 			Title:      result.Title,

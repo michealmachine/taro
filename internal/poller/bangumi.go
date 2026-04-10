@@ -38,19 +38,19 @@ type BangumiUser struct {
 
 // BangumiCollection represents a collection item
 type BangumiCollection struct {
-	SubjectID   int             `json:"subject_id"`
-	Subject     BangumiSubject  `json:"subject"`
-	Type        int             `json:"type"` // 1=想看 2=看过 3=在看 4=搁置 5=抛弃
-	Rate        int             `json:"rate"`
-	UpdatedAt   string          `json:"updated_at"`
+	SubjectID int            `json:"subject_id"`
+	Subject   BangumiSubject `json:"subject"`
+	Type      int            `json:"type"` // 1=想看 2=看过 3=在看 4=搁置 5=抛弃
+	Rate      int            `json:"rate"`
+	UpdatedAt string         `json:"updated_at"`
 }
 
 // BangumiSubject represents anime/show metadata
 type BangumiSubject struct {
 	ID      int    `json:"id"`
-	Name    string `json:"name"`     // Japanese name (preferred)
-	NameCN  string `json:"name_cn"`  // Chinese name
-	Type    int    `json:"type"`     // 2=anime
+	Name    string `json:"name"`    // Japanese name (preferred)
+	NameCN  string `json:"name_cn"` // Chinese name
+	Type    int    `json:"type"`    // 2=anime
 	Eps     int    `json:"eps"`
 	AirDate string `json:"air_date"`
 	Images  struct {
@@ -72,10 +72,10 @@ type BangumiTokenResponse struct {
 
 // BangumiCollectionResponse represents the API response
 type BangumiCollectionResponse struct {
-	Total  int                  `json:"total"`
-	Limit  int                  `json:"limit"`
-	Offset int                  `json:"offset"`
-	Data   []BangumiCollection  `json:"data"`
+	Total  int                 `json:"total"`
+	Limit  int                 `json:"limit"`
+	Offset int                 `json:"offset"`
+	Data   []BangumiCollection `json:"data"`
 }
 
 // NewBangumiPoller creates a new Bangumi poller
@@ -107,11 +107,11 @@ func (p *BangumiPoller) Poll(ctx context.Context) error {
 			return fmt.Errorf("failed to get current user: %w", err)
 		}
 		uid = user.ID
-		
+
 		// Update config with UID (best effort, don't fail if save fails)
 		p.cfg.Bangumi.UID = uid
 		if err := p.cfg.Save(); err != nil {
-			p.logger.Warn("failed to persist UID to config file, will retry on next startup", 
+			p.logger.Warn("failed to persist UID to config file, will retry on next startup",
 				"uid", uid, "error", err)
 		} else {
 			p.logger.Info("saved bangumi UID to config", "uid", uid)
@@ -224,9 +224,9 @@ func (p *BangumiPoller) fetchCollections(ctx context.Context, uid int) ([]Bangum
 	limit := 100
 
 	for {
-		url := fmt.Sprintf("%s/v0/users/%d/collections?subject_type=2&type=1&limit=%d&offset=%d", 
+		url := fmt.Sprintf("%s/v0/users/%d/collections?subject_type=2&type=1&limit=%d&offset=%d",
 			bangumiAPIBase, uid, limit, offset)
-		
+
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
@@ -287,7 +287,7 @@ func (p *BangumiPoller) refreshToken(ctx context.Context) error {
 
 	// Prepare refresh request
 	data := fmt.Sprintf("grant_type=refresh_token&refresh_token=%s", p.cfg.Bangumi.RefreshToken)
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://bgm.tv/oauth/access_token", 
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://bgm.tv/oauth/access_token",
 		strings.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("failed to create refresh request: %w", err)
