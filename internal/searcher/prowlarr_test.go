@@ -605,3 +605,37 @@ func TestSearchAutoSelect(t *testing.T) {
 		t.Errorf("selected resource resolution = %q, want %q", selectedResource.Resolution.String, "1080p")
 	}
 }
+
+func TestSelectBestResource_PreferredResolution(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := &config.Config{
+		Prowlarr: config.ProwlarrConfig{
+			URL:    "http://localhost:9696",
+			APIKey: "test-key",
+		},
+		Defaults: config.DefaultsConfig{
+			Resolution: "1080p",
+		},
+	}
+	database := setupTestDB(t)
+	defer database.Close()
+	sm := state.NewStateMachine(database)
+	s := NewSearcher(cfg, database, sm, logger)
+
+	// Test: prefer exact match over higher quality
+	entry := &db.Entry{
+		Resolution: sql.NullString{String: "720p", Valid: true},
+	}
+	resources := []*db.Resource{
+		{ID: "1", Resolution: sql.NullString{String: "1080p", Valid: true}, Seeders: sql.NullInt64{Int64: 100, Valid: true}},
+		{ID: "2", Resolution: sql.NullString{String: "720p", Valid: true}, Seeders: sql.NullInt64{Int64: 50, Valid: true}},
+	}
+
+	result := s.selectBestResource(entry, resources)
+	if result == nil {
+		t.Fatalf("selectBestResource() = nil, want resource")
+	}
+	if result.ID != "2" {
+		t.Errorf("selectBestResource() = resource %q, want resource %q (720p should win because it matches preferred)", result.ID, "2")
+	}
+}

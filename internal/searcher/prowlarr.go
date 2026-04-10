@@ -69,6 +69,7 @@ type Searcher struct {
 	client         *http.Client
 	logger         *slog.Logger
 	excludedCodecs []string // Codecs to exclude from results
+	config         *config.Config
 }
 
 // NewSearcher creates a new Prowlarr searcher
@@ -83,6 +84,7 @@ func NewSearcher(cfg *config.Config, database *db.DB, sm *state.StateMachine, lo
 		},
 		logger:         logger,
 		excludedCodecs: cfg.Defaults.ExcludedCodecs,
+		config:         cfg,
 	}
 }
 
@@ -189,9 +191,10 @@ func (s *Searcher) buildSearchQuery(entry *db.Entry) string {
 		// Format: "{title} S{season:02d}"
 		return fmt.Sprintf("%s S%02d", entry.Title, entry.Season)
 	case "movie":
-		// Format: "{title} {year}"
-		// Note: year extraction would need to be added to entry schema
-		// For now, just use title
+		// Format: "{title} {year}" if year is available
+		if entry.Year.Valid && entry.Year.Int64 > 0 {
+			return fmt.Sprintf("%s %d", entry.Title, entry.Year.Int64)
+		}
 		return entry.Title
 	default:
 		return entry.Title
@@ -312,11 +315,17 @@ func (s *Searcher) isCodecExcluded(codec string) bool {
 func (s *Searcher) decideNextState(ctx context.Context, entry *db.Entry, resources []*db.Resource) error {
 	// Determine ask mode (0=global, 1=force ask, 2=force auto)
 	askMode := entry.AskMode
-	// TODO: If askMode == 0, read from global config
 
-	// For now, assume askMode 2 (auto select) for simplicity
-	// In full implementation, this would check config.Defaults.AskMode
-	shouldAsk := askMode == 1
+	shouldAsk := false
+	if askMode == 1 {
+		// Force ask
+		shouldAsk = true
+	} else if askMode == 0 {
+		// Use global config
+		// Note: config.Defaults.AskMode is a bool where true = ask, false = auto
+		shouldAsk = s.config.Defaults.AskMode
+	}
+	// askMode == 2 means force auto, shouldAsk remains false
 
 	if shouldAsk {
 		// Transition to needs_selection
@@ -345,23 +354,38 @@ func (s *Searcher) selectBestResource(entry *db.Entry, resources []*db.Resource)
 		return nil
 	}
 
-	// Get preferred resolution (entry-level override or default)
+	// Get preferred resolution (entry-level override or global default)
 	preferredResolution := entry.Resolution.String
 	if preferredResolution == "" {
-		preferredResolution = "1080p" // Default preference
+		// Use global default from config
+		preferredResolution = s.config.Defaults.Resolution
+		if preferredResolution == "" {
+			preferredResolution = "1080p" // Fallback default
+		}
 	}
 
 	// Sort resources by priority
 	sort.Slice(resources, func(i, j int) bool {
-		// First, compare resolution priority
-		priI := resolutionPriority[resources[i].Resolution.String]
-		priJ := resolutionPriority[resources[j].Resolution.String]
+		resI := resources[i].Resolution.String
+		resJ := resources[j].Resolution.String
+
+		// First priority: exact match with preferred resolution
+		matchI := (resI == preferredResolution)
+		matchJ := (resJ == preferredResolution)
+
+		if matchI != matchJ {
+			return matchI // Preferred resolution comes first
+		}
+
+		// Second priority: resolution quality (if neither matches preferred)
+		priI := resolutionPriority[resI]
+		priJ := resolutionPriority[resJ]
 
 		if priI != priJ {
 			return priI > priJ
 		}
 
-		// If same resolution, prefer more seeders
+		// Third priority: more seeders
 		return resources[i].Seeders.Int64 > resources[j].Seeders.Int64
 	})
 

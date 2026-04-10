@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS entries (
     id              TEXT PRIMARY KEY,          -- UUID
     title           TEXT NOT NULL,             -- 媒体标题
+    year            INTEGER,                   -- 年份（用于电影搜索）
     media_type      TEXT NOT NULL,             -- 'anime' | 'movie' | 'tv'
     source          TEXT NOT NULL,             -- 'bangumi' | 'trakt' | 'manual'
     source_id       TEXT NOT NULL,             -- 平台原始 ID（Bangumi subject_id / Trakt slug / manual 时为 UUID）

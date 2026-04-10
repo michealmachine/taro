@@ -13,6 +13,7 @@ import (
 type Entry struct {
 	ID                 string         `db:"id"`
 	Title              string         `db:"title"`
+	Year               sql.NullInt64  `db:"year"`       // Year for movies
 	MediaType          string         `db:"media_type"` // 'anime' | 'movie' | 'tv'
 	Source             string         `db:"source"`     // 'bangumi' | 'trakt' | 'manual'
 	SourceID           string         `db:"source_id"`

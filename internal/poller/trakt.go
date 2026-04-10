@@ -3,6 +3,7 @@ package poller
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -186,6 +187,7 @@ func (p *TraktPoller) createMovieEntry(ctx context.Context, movie *TraktMovie) e
 	// Create new entry
 	entry := &db.Entry{
 		Title:     movie.Title,
+		Year:      sql.NullInt64{Int64: int64(movie.Year), Valid: movie.Year > 0},
 		MediaType: "movie",
 		Season:    0, // Movies don't have seasons
 		Source:    "trakt",
