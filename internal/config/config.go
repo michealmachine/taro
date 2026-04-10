@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -109,8 +110,9 @@ func Load(path string) (*Config, error) {
 	v.SetConfigFile(path)
 	v.SetConfigType("yaml")
 
-	// 设置环境变量前缀
+	// 设置环境变量前缀和映射规则
 	v.SetEnvPrefix("TARO")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
 	// 读取配置文件
@@ -197,11 +199,15 @@ func (c *Config) Save() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Read current config file to preserve unknown fields and formatting
 	v := viper.New()
 	v.SetConfigFile(configPath)
 	v.SetConfigType("yaml")
 
-	// 将当前配置写入 viper
+	// Try to read existing config, ignore error if file doesn't exist
+	_ = v.ReadInConfig()
+
+	// Update only the fields we manage
 	v.Set("server", c.Server)
 	v.Set("logging", c.Logging)
 	v.Set("bangumi", c.Bangumi)

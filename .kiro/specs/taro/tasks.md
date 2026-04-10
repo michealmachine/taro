@@ -34,7 +34,7 @@
     - 确保所有数据库操作使用事务保护
     - _需求：1.5_
 
-  - [ ] 1.4 实现状态机核心模块（internal/state/machine.go）
+  - [x] 1.4 实现状态机核心模块（internal/state/machine.go）
     - 定义 EntryStatus 枚举和 validTransitions 转换表
     - 实现 `Transition` 方法：验证转换合法性、更新条目状态、写入审计日志
     - 实现 `TransitionWithUpdate` 方法：状态转换同时更新其他字段（如 pikpak_task_id）
@@ -45,17 +45,11 @@
 - [ ] 2. 核心业务模块实现
 
   - [ ] 2.1 实现平台轮询模块（internal/poller/）
-    - [ ] 2.1.1 实现 Bangumi 轮询器（bangumi.go）
+    - [x] 2.1.1 实现 Bangumi 轮询器（bangumi.go）
       - 启动时通过 `GET /v0/me` 获取当前用户的 uid（若配置中未提供）
       - 实现 OAuth2 token 刷新逻辑（互斥锁保护配置写入）
       - 调用 Bangumi API 获取"想看"列表（`GET /v0/users/{uid}/collections?subject_type=2&type=1`）
       - 解析响应，提取 subject_id 和日文原名（name 字段，优先于 name_cn）
-      - 检查条目是否已存在（source='bangumi' AND source_id=?）
-      - 创建新条目（media_type='anime', status='pending', season=1）
-      - _需求：2.1, 2.4, 2.5_
-      - 实现 OAuth2 token 刷新逻辑（互斥锁保护配置写入）
-      - 调用 Bangumi API 获取"想看"列表（subject_type=2, type=1）
-      - 解析响应，提取 subject_id 和日文原名（name 字段）
       - 检查条目是否已存在（source='bangumi' AND source_id=?）
       - 创建新条目（media_type='anime', status='pending', season=1）
       - _需求：2.1, 2.4, 2.5_

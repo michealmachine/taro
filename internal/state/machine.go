@@ -55,13 +55,6 @@ func NewStateMachine(database *db.DB) *StateMachine {
 	}
 }
 
-// TransitionRequest contains the parameters for a state transition
-type TransitionRequest struct {
-	To      EntryStatus
-	Reason  string
-	Updates map[string]any // Optional additional field updates
-}
-
 // Transition executes a state transition and writes an audit log within a transaction
 func (sm *StateMachine) Transition(ctx context.Context, entryID string, to EntryStatus, reason string) error {
 	return sm.TransitionWithUpdate(ctx, entryID, to, map[string]any{"reason": reason})
