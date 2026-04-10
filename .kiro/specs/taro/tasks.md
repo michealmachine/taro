@@ -62,7 +62,7 @@
       - 检查去重并创建新条目
       - _需求：2.2, 2.4, 2.5_
 
-  - [ ] 2.2 实现资源搜索模块（internal/searcher/prowlarr.go）
+  - [x] 2.2 实现资源搜索模块（internal/searcher/prowlarr.go）
     - 实现 `Search` 方法：将条目状态转为 searching
     - 构造搜索关键词（剧集/动漫：`{title} S{season:02d}`，电影：`{title} {year}`）
     - 调用 Prowlarr API（`GET /api/v1/search`），根据 media_type 指定 indexerIds
