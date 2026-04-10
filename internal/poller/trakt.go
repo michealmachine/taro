@@ -131,42 +131,61 @@ func (p *TraktPoller) Poll(ctx context.Context) error {
 	return nil
 }
 
-// fetchWatchlist fetches watchlist items of a specific type
+// fetchWatchlist fetches watchlist items of a specific type with pagination
 func (p *TraktPoller) fetchWatchlist(ctx context.Context, itemType string) ([]TraktWatchlistItem, error) {
-	url := fmt.Sprintf("%s/sync/watchlist/%s", traktAPIBase, itemType)
+	allItems := []TraktWatchlistItem{}
+	page := 1
+	limit := 100
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	for {
+		url := fmt.Sprintf("%s/sync/watchlist/%s?page=%d&limit=%d", traktAPIBase, itemType, page, limit)
+
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// Set required headers
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", p.config.Trakt.AccessToken))
+		req.Header.Set("trakt-api-version", "2")
+		req.Header.Set("trakt-api-key", p.config.Trakt.ClientID)
+
+		resp, err := p.client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute request: %w", err)
+		}
+
+		if resp.StatusCode == 401 {
+			resp.Body.Close()
+			return nil, fmt.Errorf("unauthorized: token may be invalid or expired")
+		}
+
+		if resp.StatusCode != 200 {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
+		}
+
+		var items []TraktWatchlistItem
+		if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+			resp.Body.Close()
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+		resp.Body.Close()
+
+		allItems = append(allItems, items...)
+
+		// Check if we got fewer items than the limit, meaning we've reached the end
+		if len(items) < limit {
+			break
+		}
+
+		page++
+		p.logger.Debug("fetching next page", "type", itemType, "page", page)
 	}
 
-	// Set required headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", p.config.Trakt.AccessToken))
-	req.Header.Set("trakt-api-version", "2")
-	req.Header.Set("trakt-api-key", p.config.Trakt.ClientID)
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 401 {
-		return nil, fmt.Errorf("unauthorized: token may be invalid or expired")
-	}
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
-	}
-
-	var items []TraktWatchlistItem
-	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return items, nil
+	return allItems, nil
 }
 
 // createMovieEntry creates a new entry for a movie

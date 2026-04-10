@@ -187,8 +187,16 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 // buildSearchQuery constructs the search query based on entry type
 func (s *Searcher) buildSearchQuery(entry *db.Entry) string {
 	switch entry.MediaType {
-	case "anime", "tv":
-		// Format: "{title} S{season:02d}"
+	case "anime":
+		// For Bangumi anime, don't add season suffix as Bangumi treats each season as a separate entry
+		// The title already contains season information if applicable (e.g., "進撃の巨人 Season 3")
+		if entry.Source == "bangumi" {
+			return entry.Title
+		}
+		// For other sources (like Trakt), add season suffix
+		return fmt.Sprintf("%s S%02d", entry.Title, entry.Season)
+	case "tv":
+		// TV shows always use season format
 		return fmt.Sprintf("%s S%02d", entry.Title, entry.Season)
 	case "movie":
 		// Format: "{title} {year}" if year is available

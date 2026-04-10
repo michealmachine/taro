@@ -185,7 +185,10 @@ func (sm *StateMachine) RecoverOnStartup(ctx context.Context, callbacks *Recover
 
 	for _, entry := range searchingEntries {
 		if err := sm.Transition(ctx, entry.ID, StatusPending, "reset on startup"); err != nil {
-			return fmt.Errorf("failed to reset entry %s: %w", entry.ID, err)
+			// Log error but continue with other entries
+			// Don't let one failed entry block the entire recovery process
+			fmt.Printf("ERROR: failed to reset entry %s: %v\n", entry.ID, err)
+			continue
 		}
 	}
 
@@ -199,7 +202,9 @@ func (sm *StateMachine) RecoverOnStartup(ctx context.Context, callbacks *Recover
 		for _, entry := range downloadingEntries {
 			if entry.PikPakTaskID.Valid && entry.PikPakTaskID.String != "" {
 				if err := callbacks.OnDownloading(entry.ID, entry.PikPakTaskID.String); err != nil {
-					return fmt.Errorf("failed to recover downloading entry %s: %w", entry.ID, err)
+					// Log error but continue with other entries
+					fmt.Printf("ERROR: failed to recover downloading entry %s: %v\n", entry.ID, err)
+					continue
 				}
 			}
 		}
@@ -215,7 +220,9 @@ func (sm *StateMachine) RecoverOnStartup(ctx context.Context, callbacks *Recover
 		for _, entry := range transferringEntries {
 			if entry.TransferTaskID.Valid && entry.TransferTaskID.String != "" {
 				if err := callbacks.OnTransferring(entry.ID, entry.TransferTaskID.String); err != nil {
-					return fmt.Errorf("failed to recover transferring entry %s: %w", entry.ID, err)
+					// Log error but continue with other entries
+					fmt.Printf("ERROR: failed to recover transferring entry %s: %v\n", entry.ID, err)
+					continue
 				}
 			}
 		}
