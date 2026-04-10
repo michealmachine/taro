@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -338,12 +339,13 @@ func TestStateMachine_RecoverOnStartup(t *testing.T) {
 	entries := []struct {
 		sourceID string
 		status   EntryStatus
+		taskID   string
 	}{
-		{"search-1", StatusSearching},
-		{"search-2", StatusSearching},
-		{"download-1", StatusDownloading},
-		{"transfer-1", StatusTransferring},
-		{"pending-1", StatusPending},
+		{"search-1", StatusSearching, ""},
+		{"search-2", StatusSearching, ""},
+		{"download-1", StatusDownloading, "task-download-1"},
+		{"transfer-1", StatusTransferring, "task-transfer-1"},
+		{"pending-1", StatusPending, ""},
 	}
 
 	for _, e := range entries {
@@ -355,13 +357,34 @@ func TestStateMachine_RecoverOnStartup(t *testing.T) {
 			Season:    0,
 			Status:    string(e.status),
 		}
+		if e.status == StatusDownloading && e.taskID != "" {
+			entry.PikPakTaskID = sql.NullString{String: e.taskID, Valid: true}
+		}
+		if e.status == StatusTransferring && e.taskID != "" {
+			entry.TransferTaskID = sql.NullString{String: e.taskID, Valid: true}
+		}
 		if err := database.CreateEntry(ctx, entry); err != nil {
 			t.Fatalf("failed to create entry: %v", err)
 		}
 	}
 
+	// Track recovered tasks
+	downloadingRecovered := []string{}
+	transferringRecovered := []string{}
+
+	callbacks := &RecoveryCallbacks{
+		OnDownloading: func(entryID, taskID string) error {
+			downloadingRecovered = append(downloadingRecovered, taskID)
+			return nil
+		},
+		OnTransferring: func(entryID, taskID string) error {
+			transferringRecovered = append(transferringRecovered, taskID)
+			return nil
+		},
+	}
+
 	// Run recovery
-	if err := sm.RecoverOnStartup(ctx); err != nil {
+	if err := sm.RecoverOnStartup(ctx, callbacks); err != nil {
 		t.Fatalf("RecoverOnStartup() failed: %v", err)
 	}
 
@@ -389,6 +412,14 @@ func TestStateMachine_RecoverOnStartup(t *testing.T) {
 	}
 	if len(transferringEntries) != 1 {
 		t.Errorf("expected 1 transferring entry, got %d", len(transferringEntries))
+	}
+
+	// Verify callbacks were invoked
+	if len(downloadingRecovered) != 1 || downloadingRecovered[0] != "task-download-1" {
+		t.Errorf("expected downloading callback with task-download-1, got %v", downloadingRecovered)
+	}
+	if len(transferringRecovered) != 1 || transferringRecovered[0] != "task-transfer-1" {
+		t.Errorf("expected transferring callback with task-transfer-1, got %v", transferringRecovered)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/michealmachine/taro/internal/db"
 )
 
@@ -43,104 +44,98 @@ var validTransitions = map[EntryStatus][]EntryStatus{
 
 // StateMachine manages entry state transitions
 type StateMachine struct {
-	db *db.DB
-	mu sync.Mutex
+	database *db.DB
+	mu       sync.Mutex
 }
 
 // NewStateMachine creates a new state machine
 func NewStateMachine(database *db.DB) *StateMachine {
 	return &StateMachine{
-		db: database,
+		database: database,
 	}
 }
 
-// Transition executes a state transition and writes an audit log
+// TransitionRequest contains the parameters for a state transition
+type TransitionRequest struct {
+	To      EntryStatus
+	Reason  string
+	Updates map[string]any // Optional additional field updates
+}
+
+// Transition executes a state transition and writes an audit log within a transaction
 func (sm *StateMachine) Transition(ctx context.Context, entryID string, to EntryStatus, reason string) error {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	// Get current entry
-	entry, err := sm.db.GetEntry(ctx, entryID)
-	if err != nil {
-		return fmt.Errorf("failed to get entry: %w", err)
-	}
-
-	from := EntryStatus(entry.Status)
-
-	// Validate transition
-	if !sm.isValidTransition(from, to) {
-		return fmt.Errorf("invalid transition from %s to %s", from, to)
-	}
-
-	// Update entry status
-	now := time.Now()
-	entry.Status = string(to)
-	entry.UpdatedAt = now
-
-	// Set failed_at for failed status
-	if to == StatusFailed {
-		entry.FailedAt = sql.NullTime{Time: now, Valid: true}
-	}
-
-	// Clear failed_at when recovering from failed
-	if from == StatusFailed && to != StatusFailed {
-		entry.FailedAt = sql.NullTime{Valid: false}
-	}
-
-	if err := sm.db.UpdateEntry(ctx, entry); err != nil {
-		return fmt.Errorf("failed to update entry: %w", err)
-	}
-
-	// Write audit log
-	stateLog := &db.StateLog{
-		EntryID:    entryID,
-		FromStatus: string(from),
-		ToStatus:   string(to),
-		Reason:     sql.NullString{String: reason, Valid: reason != ""},
-	}
-	if err := sm.db.CreateStateLog(ctx, stateLog); err != nil {
-		return fmt.Errorf("failed to create state log: %w", err)
-	}
-
-	return nil
+	return sm.TransitionWithUpdate(ctx, entryID, to, map[string]any{"reason": reason})
 }
 
-// TransitionWithUpdate executes a state transition and updates additional fields
+// TransitionWithUpdate executes a state transition and updates additional fields within a transaction
 func (sm *StateMachine) TransitionWithUpdate(ctx context.Context, entryID string, to EntryStatus, updates map[string]any) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	// Get current entry
-	entry, err := sm.db.GetEntry(ctx, entryID)
-	if err != nil {
-		return fmt.Errorf("failed to get entry: %w", err)
-	}
+	return sm.database.WithTx(ctx, func(tx *sqlx.Tx) error {
+		// Get current entry within transaction
+		entry, err := db.GetEntryTx(ctx, tx, entryID)
+		if err != nil {
+			return fmt.Errorf("failed to get entry: %w", err)
+		}
 
-	from := EntryStatus(entry.Status)
+		from := EntryStatus(entry.Status)
 
-	// Validate transition
-	if !sm.isValidTransition(from, to) {
-		return fmt.Errorf("invalid transition from %s to %s", from, to)
-	}
+		// Validate transition
+		if !sm.isValidTransition(from, to) {
+			return fmt.Errorf("invalid transition from %s to %s", from, to)
+		}
 
-	// Update entry status
-	now := time.Now()
-	entry.Status = string(to)
-	entry.UpdatedAt = now
+		// Update entry status
+		now := time.Now()
+		entry.Status = string(to)
+		entry.UpdatedAt = now
 
-	// Set failed_at for failed status
-	if to == StatusFailed {
-		entry.FailedAt = sql.NullTime{Time: now, Valid: true}
-	}
+		// Set failed_at for failed status
+		if to == StatusFailed {
+			entry.FailedAt = sql.NullTime{Time: now, Valid: true}
+		}
 
-	// Clear failed_at when recovering from failed
-	if from == StatusFailed && to != StatusFailed {
-		entry.FailedAt = sql.NullTime{Valid: false}
-	}
+		// Clear failed_at when recovering from failed
+		if from == StatusFailed && to != StatusFailed {
+			entry.FailedAt = sql.NullTime{Valid: false}
+		}
 
-	// Apply additional updates
+		// Apply additional updates
+		sm.applyUpdates(entry, updates)
+
+		// Update entry within transaction
+		if err := db.UpdateEntryTx(ctx, tx, entry); err != nil {
+			return fmt.Errorf("failed to update entry: %w", err)
+		}
+
+		// Write audit log within transaction
+		reason := "state transition"
+		if r, ok := updates["reason"].(string); ok && r != "" {
+			reason = r
+		}
+
+		stateLog := &db.StateLog{
+			EntryID:    entryID,
+			FromStatus: string(from),
+			ToStatus:   string(to),
+			Reason:     sql.NullString{String: reason, Valid: true},
+			CreatedAt:  now,
+		}
+		if err := db.CreateStateLogTx(ctx, tx, stateLog); err != nil {
+			return fmt.Errorf("failed to create state log: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// applyUpdates applies additional field updates to an entry
+func (sm *StateMachine) applyUpdates(entry *db.Entry, updates map[string]any) {
 	for key, value := range updates {
 		switch key {
+		case "reason": // Skip reason, it's only for audit log
+			continue
 		case "pikpak_task_id":
 			if v, ok := value.(string); ok {
 				entry.PikPakTaskID = sql.NullString{String: v, Valid: v != ""}
@@ -179,34 +174,18 @@ func (sm *StateMachine) TransitionWithUpdate(ctx context.Context, entryID string
 			}
 		}
 	}
+}
 
-	if err := sm.db.UpdateEntry(ctx, entry); err != nil {
-		return fmt.Errorf("failed to update entry: %w", err)
-	}
-
-	// Write audit log
-	reason := "state transition with updates"
-	if r, ok := updates["reason"].(string); ok {
-		reason = r
-	}
-
-	stateLog := &db.StateLog{
-		EntryID:    entryID,
-		FromStatus: string(from),
-		ToStatus:   string(to),
-		Reason:     sql.NullString{String: reason, Valid: reason != ""},
-	}
-	if err := sm.db.CreateStateLog(ctx, stateLog); err != nil {
-		return fmt.Errorf("failed to create state log: %w", err)
-	}
-
-	return nil
+// RecoveryCallbacks contains callbacks for recovering downloading and transferring entries
+type RecoveryCallbacks struct {
+	OnDownloading  func(entryID, taskID string) error
+	OnTransferring func(entryID, taskID string) error
 }
 
 // RecoverOnStartup executes recovery logic on system startup
-func (sm *StateMachine) RecoverOnStartup(ctx context.Context) error {
+func (sm *StateMachine) RecoverOnStartup(ctx context.Context, callbacks *RecoveryCallbacks) error {
 	// Reset all searching entries to pending
-	searchingEntries, err := sm.db.ListEntriesByStatus(ctx, string(StatusSearching))
+	searchingEntries, err := sm.database.ListEntriesByStatus(ctx, string(StatusSearching))
 	if err != nil {
 		return fmt.Errorf("failed to list searching entries: %w", err)
 	}
@@ -217,8 +196,37 @@ func (sm *StateMachine) RecoverOnStartup(ctx context.Context) error {
 		}
 	}
 
-	// Note: downloading and transferring entries will be recovered by their respective modules
-	// The downloader and transfer coordinator will re-register their task IDs to polling queues
+	// Recover downloading entries if callback provided
+	if callbacks != nil && callbacks.OnDownloading != nil {
+		downloadingEntries, err := sm.database.ListEntriesByStatus(ctx, string(StatusDownloading))
+		if err != nil {
+			return fmt.Errorf("failed to list downloading entries: %w", err)
+		}
+
+		for _, entry := range downloadingEntries {
+			if entry.PikPakTaskID.Valid && entry.PikPakTaskID.String != "" {
+				if err := callbacks.OnDownloading(entry.ID, entry.PikPakTaskID.String); err != nil {
+					return fmt.Errorf("failed to recover downloading entry %s: %w", entry.ID, err)
+				}
+			}
+		}
+	}
+
+	// Recover transferring entries if callback provided
+	if callbacks != nil && callbacks.OnTransferring != nil {
+		transferringEntries, err := sm.database.ListEntriesByStatus(ctx, string(StatusTransferring))
+		if err != nil {
+			return fmt.Errorf("failed to list transferring entries: %w", err)
+		}
+
+		for _, entry := range transferringEntries {
+			if entry.TransferTaskID.Valid && entry.TransferTaskID.String != "" {
+				if err := callbacks.OnTransferring(entry.ID, entry.TransferTaskID.String); err != nil {
+					return fmt.Errorf("failed to recover transferring entry %s: %w", entry.ID, err)
+				}
+			}
+		}
+	}
 
 	return nil
 }
