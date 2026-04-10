@@ -76,13 +76,16 @@ jobs:
           go-version: '1.22'
           cache: false  # Disable cache to avoid Go 1.25 toolchain issues
       
+      - name: Download dependencies
+        run: go mod download
+      
       - name: Build taro
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          go build -ldflags="-s -w" -o taro-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/taro
+          go build -v -ldflags="-s -w" -o taro-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/taro
       
       - name: Build taroctl
         env:
@@ -90,7 +93,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          go build -ldflags="-s -w" -o taroctl-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/taroctl
+          go build -v -ldflags="-s -w" -o taroctl-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/taroctl
       
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
