@@ -1,0 +1,58 @@
+server:
+  port: 8080
+  db_path: /data/taro.db
+
+logging:
+  level: "info"        # debug | info | warn | error
+  format: "text"       # text | json
+
+bangumi:
+  uid: 123456                # Bangumi 用户数字 ID（通过 GET /v0/me 获取）
+  username: "your_username"
+  access_token: "xxx"
+  refresh_token: "xxx"
+  token_expires_at: "2026-01-01T00:00:00Z"
+  poll_interval: "24h"
+
+trakt:
+  client_id: "xxx"
+  client_secret: "xxx"
+  access_token: "xxx"
+  refresh_token: "xxx"
+  token_expires_at: "2026-01-01T00:00:00Z"
+  poll_interval: "24h"
+
+prowlarr:
+  url: "http://localhost:9696"
+  api_key: "xxx"
+
+pikpak:
+  username: "your@email.com"
+  password: "xxx"
+  poll_interval: "5m"
+  gc_interval: "24h"
+  gc_retention_days: 7
+
+transfer:
+  url: "https://your-space.hf.space"
+  token: "your_shared_token"
+  poll_interval: "2m"
+
+telegram:
+  bot_token: "xxx:xxx"
+  chat_id: 123456789
+
+onedrive:
+  mount_path: "/mnt/onedrive"
+  media_root: "/mnt/onedrive/media"
+  health_check_interval: "10m"
+
+defaults:
+  resolution: "1080p"
+  ask_mode: false
+  selection_timeout: "24h"
+  max_concurrent_searches: 3
+
+retention:
+  state_logs_days: 90                  # state_logs 保留天数，0=永久保留
+  clean_resources_on_complete: true    # 条目终态后清理候选资源
