@@ -54,7 +54,7 @@
       - 创建新条目（media_type='anime', status='pending', season=1）
       - _需求：2.1, 2.4, 2.5_
 
-    - [ ] 2.1.2 实现 Trakt 轮询器（trakt.go）
+    - [x] 2.1.2 实现 Trakt 轮询器（trakt.go）
       - 实现 OAuth2 token 刷新逻辑
       - 调用 Trakt API 获取 watchlist（type=movies,shows）
       - 区分 movie 和 show，解析标题和年份

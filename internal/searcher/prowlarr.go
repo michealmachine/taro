@@ -62,13 +62,13 @@ type ProwlarrSearchResult struct {
 
 // Searcher handles resource searching via Prowlarr
 type Searcher struct {
-	prowlarrURL     string
-	apiKey          string
-	database        *db.DB
-	sm              *state.StateMachine
-	client          *http.Client
-	logger          *slog.Logger
-	excludedCodecs  []string // Codecs to exclude from results
+	prowlarrURL    string
+	apiKey         string
+	database       *db.DB
+	sm             *state.StateMachine
+	client         *http.Client
+	logger         *slog.Logger
+	excludedCodecs []string // Codecs to exclude from results
 }
 
 // NewSearcher creates a new Prowlarr searcher
