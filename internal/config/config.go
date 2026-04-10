@@ -60,11 +60,11 @@ type ProwlarrConfig struct {
 }
 
 type PikPakConfig struct {
-	Username         string `mapstructure:"username"`
-	Password         string `mapstructure:"password"`
-	PollInterval     string `mapstructure:"poll_interval"`
-	GCInterval       string `mapstructure:"gc_interval"`
-	GCRetentionDays  int    `mapstructure:"gc_retention_days"`
+	Username        string `mapstructure:"username"`
+	Password        string `mapstructure:"password"`
+	PollInterval    string `mapstructure:"poll_interval"`
+	GCInterval      string `mapstructure:"gc_interval"`
+	GCRetentionDays int    `mapstructure:"gc_retention_days"`
 }
 
 type TransferConfig struct {

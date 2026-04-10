@@ -12,12 +12,12 @@ func TestBatchCreateResources(t *testing.T) {
 
 	// 创建测试条目
 	entry := &Entry{
-		Title:      "Test Entry",
-		MediaType:  "anime",
-		Source:     "bangumi",
-		SourceID:   "12345",
-		Season:     1,
-		Status:     "searching",
+		Title:     "Test Entry",
+		MediaType: "anime",
+		Source:    "bangumi",
+		SourceID:  "12345",
+		Season:    1,
+		Status:    "searching",
 	}
 
 	if err := db.CreateEntry(ctx, entry); err != nil {

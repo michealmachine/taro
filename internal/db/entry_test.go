@@ -11,13 +11,13 @@ func TestCreateEntry(t *testing.T) {
 	ctx := context.Background()
 
 	entry := &Entry{
-		Title:      "Test Movie",
-		MediaType:  "movie",
-		Source:     "manual",
-		SourceID:   "test-source-1",
-		Season:     0,
-		Status:     "pending",
-		AskMode:    0,
+		Title:     "Test Movie",
+		MediaType: "movie",
+		Source:    "manual",
+		SourceID:  "test-source-1",
+		Season:    0,
+		Status:    "pending",
+		AskMode:   0,
 	}
 
 	err := db.CreateEntry(ctx, entry)
@@ -44,12 +44,12 @@ func TestGetEntry(t *testing.T) {
 
 	// 创建测试条目
 	entry := &Entry{
-		Title:      "Test Anime",
-		MediaType:  "anime",
-		Source:     "bangumi",
-		SourceID:   "12345",
-		Season:     1,
-		Status:     "pending",
+		Title:     "Test Anime",
+		MediaType: "anime",
+		Source:    "bangumi",
+		SourceID:  "12345",
+		Season:    1,
+		Status:    "pending",
 	}
 
 	if err := db.CreateEntry(ctx, entry); err != nil {
@@ -83,12 +83,12 @@ func TestUpdateEntry(t *testing.T) {
 
 	// 创建测试条目
 	entry := &Entry{
-		Title:      "Original Title",
-		MediaType:  "tv",
-		Source:     "trakt",
-		SourceID:   "test-show",
-		Season:     1,
-		Status:     "pending",
+		Title:     "Original Title",
+		MediaType: "tv",
+		Source:    "trakt",
+		SourceID:  "test-show",
+		Season:    1,
+		Status:    "pending",
 	}
 
 	if err := db.CreateEntry(ctx, entry); err != nil {
@@ -196,12 +196,12 @@ func TestListEntriesByStatus(t *testing.T) {
 	statuses := []string{"pending", "searching", "pending", "found"}
 	for i, status := range statuses {
 		entry := &Entry{
-			Title:      "Test Entry",
-			MediaType:  "movie",
-			Source:     "manual",
-			SourceID:   string(rune('a' + i)),
-			Season:     0,
-			Status:     status,
+			Title:     "Test Entry",
+			MediaType: "movie",
+			Source:    "manual",
+			SourceID:  string(rune('a' + i)),
+			Season:    0,
+			Status:    status,
 		}
 		if err := db.CreateEntry(ctx, entry); err != nil {
 			t.Fatalf("failed to create entry: %v", err)
@@ -224,12 +224,12 @@ func TestEntryExists(t *testing.T) {
 
 	// 创建测试条目
 	entry := &Entry{
-		Title:      "Test Entry",
-		MediaType:  "anime",
-		Source:     "bangumi",
-		SourceID:   "12345",
-		Season:     1,
-		Status:     "pending",
+		Title:     "Test Entry",
+		MediaType: "anime",
+		Source:    "bangumi",
+		SourceID:  "12345",
+		Season:    1,
+		Status:    "pending",
 	}
 
 	if err := db.CreateEntry(ctx, entry); err != nil {
@@ -276,12 +276,12 @@ func TestEntryUniqueConstraint(t *testing.T) {
 
 	// 创建第一个条目
 	entry1 := &Entry{
-		Title:      "Test Entry",
-		MediaType:  "anime",
-		Source:     "bangumi",
-		SourceID:   "12345",
-		Season:     1,
-		Status:     "pending",
+		Title:     "Test Entry",
+		MediaType: "anime",
+		Source:    "bangumi",
+		SourceID:  "12345",
+		Season:    1,
+		Status:    "pending",
 	}
 
 	if err := db.CreateEntry(ctx, entry1); err != nil {
@@ -290,12 +290,12 @@ func TestEntryUniqueConstraint(t *testing.T) {
 
 	// 尝试创建重复条目（相同 source, source_id, season）
 	entry2 := &Entry{
-		Title:      "Duplicate Entry",
-		MediaType:  "anime",
-		Source:     "bangumi",
-		SourceID:   "12345",
-		Season:     1,
-		Status:     "pending",
+		Title:     "Duplicate Entry",
+		MediaType: "anime",
+		Source:    "bangumi",
+		SourceID:  "12345",
+		Season:    1,
+		Status:    "pending",
 	}
 
 	err := db.CreateEntry(ctx, entry2)
@@ -305,12 +305,12 @@ func TestEntryUniqueConstraint(t *testing.T) {
 
 	// 创建不同季的条目应该成功
 	entry3 := &Entry{
-		Title:      "Different Season",
-		MediaType:  "anime",
-		Source:     "bangumi",
-		SourceID:   "12345",
-		Season:     2,
-		Status:     "pending",
+		Title:     "Different Season",
+		MediaType: "anime",
+		Source:    "bangumi",
+		SourceID:  "12345",
+		Season:    2,
+		Status:    "pending",
 	}
 
 	if err := db.CreateEntry(ctx, entry3); err != nil {
@@ -323,12 +323,12 @@ func TestEntryNullableFields(t *testing.T) {
 	ctx := context.Background()
 
 	entry := &Entry{
-		Title:      "Test Entry",
-		MediaType:  "movie",
-		Source:     "manual",
-		SourceID:   "test-1",
-		Season:     0,
-		Status:     "downloading",
+		Title:        "Test Entry",
+		MediaType:    "movie",
+		Source:       "manual",
+		SourceID:     "test-1",
+		Season:       0,
+		Status:       "downloading",
 		PikPakTaskID: sql.NullString{String: "pikpak-task-123", Valid: true},
 		Resolution:   sql.NullString{String: "1080p", Valid: true},
 	}

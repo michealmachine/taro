@@ -11,27 +11,27 @@ import (
 
 // Entry represents a media entry in the database
 type Entry struct {
-	ID               string         `db:"id"`
-	Title            string         `db:"title"`
-	MediaType        string         `db:"media_type"` // 'anime' | 'movie' | 'tv'
-	Source           string         `db:"source"`     // 'bangumi' | 'trakt' | 'manual'
-	SourceID         string         `db:"source_id"`
-	Season           int            `db:"season"`
-	Status           string         `db:"status"`
-	AskMode          int            `db:"ask_mode"` // 0=全局配置 1=强制询问 2=强制自动
-	Resolution       sql.NullString `db:"resolution"`
+	ID                 string         `db:"id"`
+	Title              string         `db:"title"`
+	MediaType          string         `db:"media_type"` // 'anime' | 'movie' | 'tv'
+	Source             string         `db:"source"`     // 'bangumi' | 'trakt' | 'manual'
+	SourceID           string         `db:"source_id"`
+	Season             int            `db:"season"`
+	Status             string         `db:"status"`
+	AskMode            int            `db:"ask_mode"` // 0=全局配置 1=强制询问 2=强制自动
+	Resolution         sql.NullString `db:"resolution"`
 	SelectedResourceID sql.NullString `db:"selected_resource_id"`
-	PikPakTaskID     sql.NullString `db:"pikpak_task_id"`
-	PikPakFileID     sql.NullString `db:"pikpak_file_id"`
-	PikPakFilePath   sql.NullString `db:"pikpak_file_path"`
-	PikPakCleaned    bool           `db:"pikpak_cleaned"`
-	TransferTaskID   sql.NullString `db:"transfer_task_id"`
-	TargetPath       sql.NullString `db:"target_path"`
-	FailedStage      sql.NullString `db:"failed_stage"`
-	FailedReason     sql.NullString `db:"failed_reason"`
-	FailedAt         sql.NullTime   `db:"failed_at"`
-	CreatedAt        time.Time      `db:"created_at"`
-	UpdatedAt        time.Time      `db:"updated_at"`
+	PikPakTaskID       sql.NullString `db:"pikpak_task_id"`
+	PikPakFileID       sql.NullString `db:"pikpak_file_id"`
+	PikPakFilePath     sql.NullString `db:"pikpak_file_path"`
+	PikPakCleaned      bool           `db:"pikpak_cleaned"`
+	TransferTaskID     sql.NullString `db:"transfer_task_id"`
+	TargetPath         sql.NullString `db:"target_path"`
+	FailedStage        sql.NullString `db:"failed_stage"`
+	FailedReason       sql.NullString `db:"failed_reason"`
+	FailedAt           sql.NullTime   `db:"failed_at"`
+	CreatedAt          time.Time      `db:"created_at"`
+	UpdatedAt          time.Time      `db:"updated_at"`
 }
 
 // CreateEntry creates a new entry
@@ -68,7 +68,7 @@ func (db *DB) CreateEntry(ctx context.Context, entry *Entry) error {
 func (db *DB) GetEntry(ctx context.Context, id string) (*Entry, error) {
 	var entry Entry
 	query := `SELECT * FROM entries WHERE id = ?`
-	
+
 	err := db.GetContext(ctx, &entry, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -155,7 +155,7 @@ func (db *DB) ListEntries(ctx context.Context, filters map[string]interface{}) (
 func (db *DB) ListEntriesByStatus(ctx context.Context, status string) ([]*Entry, error) {
 	var entries []*Entry
 	query := `SELECT * FROM entries WHERE status = ? ORDER BY created_at DESC`
-	
+
 	err := db.SelectContext(ctx, &entries, query, status)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list entries by status: %w", err)
@@ -168,7 +168,7 @@ func (db *DB) ListEntriesByStatus(ctx context.Context, status string) ([]*Entry,
 func (db *DB) EntryExists(ctx context.Context, source, sourceID string, season int) (bool, error) {
 	var count int
 	query := `SELECT COUNT(*) FROM entries WHERE source = ? AND source_id = ? AND season = ?`
-	
+
 	err := db.GetContext(ctx, &count, query, source, sourceID, season)
 	if err != nil {
 		return false, fmt.Errorf("failed to check entry existence: %w", err)

@@ -47,7 +47,7 @@ func (db *DB) CreateStateLog(ctx context.Context, log *StateLog) error {
 func (db *DB) ListStateLogsByEntry(ctx context.Context, entryID string) ([]*StateLog, error) {
 	var logs []*StateLog
 	query := `SELECT * FROM state_logs WHERE entry_id = ? ORDER BY created_at ASC`
-	
+
 	err := db.SelectContext(ctx, &logs, query, entryID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list state logs: %w", err)
@@ -59,7 +59,7 @@ func (db *DB) ListStateLogsByEntry(ctx context.Context, entryID string) ([]*Stat
 // DeleteStateLogsByEntry deletes all state logs for an entry
 func (db *DB) DeleteStateLogsByEntry(ctx context.Context, entryID string) error {
 	query := `DELETE FROM state_logs WHERE entry_id = ?`
-	
+
 	_, err := db.ExecContext(ctx, query, entryID)
 	if err != nil {
 		return fmt.Errorf("failed to delete state logs: %w", err)
@@ -75,7 +75,7 @@ func (db *DB) DeleteOldStateLogs(ctx context.Context, days int) (int64, error) {
 	}
 
 	query := `DELETE FROM state_logs WHERE created_at < datetime('now', '-' || ? || ' days')`
-	
+
 	result, err := db.ExecContext(ctx, query, days)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete old state logs: %w", err)

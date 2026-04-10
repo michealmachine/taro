@@ -25,7 +25,7 @@
     - 添加配置验证逻辑（必填项检查）
     - _需求：12_
 
-  - [-] 1.3 实现数据库模块（internal/db/）
+  - [x] 1.3 实现数据库模块（internal/db/）
     - 创建 `schema.sql`，定义 entries、resources、state_logs 三张表及索引
     - 实现 `db.go`：数据库连接初始化（modernc.org/sqlite）、自动迁移逻辑
     - 实现 `entry.go`：Entry CRUD 操作（Create、Get、Update、List、ListByStatus）

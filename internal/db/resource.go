@@ -58,7 +58,7 @@ func (db *DB) BatchCreateResources(ctx context.Context, resources []*Resource) e
 func (db *DB) ListResourcesByEntry(ctx context.Context, entryID string) ([]*Resource, error) {
 	var resources []*Resource
 	query := `SELECT * FROM resources WHERE entry_id = ? ORDER BY created_at DESC`
-	
+
 	err := db.SelectContext(ctx, &resources, query, entryID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list resources: %w", err)
@@ -71,7 +71,7 @@ func (db *DB) ListResourcesByEntry(ctx context.Context, entryID string) ([]*Reso
 func (db *DB) GetResource(ctx context.Context, id string) (*Resource, error) {
 	var resource Resource
 	query := `SELECT * FROM resources WHERE id = ?`
-	
+
 	err := db.GetContext(ctx, &resource, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -86,7 +86,7 @@ func (db *DB) GetResource(ctx context.Context, id string) (*Resource, error) {
 // DeleteResourcesByEntry deletes all resources for an entry
 func (db *DB) DeleteResourcesByEntry(ctx context.Context, entryID string) error {
 	query := `DELETE FROM resources WHERE entry_id = ?`
-	
+
 	_, err := db.ExecContext(ctx, query, entryID)
 	if err != nil {
 		return fmt.Errorf("failed to delete resources: %w", err)
@@ -98,7 +98,7 @@ func (db *DB) DeleteResourcesByEntry(ctx context.Context, entryID string) error 
 // DeleteResource deletes a single resource by ID
 func (db *DB) DeleteResource(ctx context.Context, id string) error {
 	query := `DELETE FROM resources WHERE id = ?`
-	
+
 	result, err := db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete resource: %w", err)
