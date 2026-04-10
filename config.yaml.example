@@ -52,6 +52,7 @@ defaults:
   ask_mode: false
   selection_timeout: "24h"
   max_concurrent_searches: 3
+  excluded_codecs: []  # 排除的编码，例如: ["av1", "x265"]
 
 retention:
   state_logs_days: 90                  # state_logs 保留天数，0=永久保留

@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/michealmachine/taro/internal/config"
@@ -29,6 +30,9 @@ var resolutionPriority = map[string]int{
 
 // resolutionRegex matches resolution patterns in titles
 var resolutionRegex = regexp.MustCompile(`(?i)(1080p|1080i|720p|480p)`)
+
+// codecRegex matches codec patterns in titles
+var codecRegex = regexp.MustCompile(`(?i)(av1|avc|x264|x265|hevc|h\.?264|h\.?265)`)
 
 // SearchResult represents a search result from Prowlarr
 type SearchResult struct {
@@ -58,12 +62,13 @@ type ProwlarrSearchResult struct {
 
 // Searcher handles resource searching via Prowlarr
 type Searcher struct {
-	prowlarrURL string
-	apiKey      string
-	database    *db.DB
-	sm          *state.StateMachine
-	client      *http.Client
-	logger      *slog.Logger
+	prowlarrURL     string
+	apiKey          string
+	database        *db.DB
+	sm              *state.StateMachine
+	client          *http.Client
+	logger          *slog.Logger
+	excludedCodecs  []string // Codecs to exclude from results
 }
 
 // NewSearcher creates a new Prowlarr searcher
@@ -76,7 +81,8 @@ func NewSearcher(cfg *config.Config, database *db.DB, sm *state.StateMachine, lo
 		client: &http.Client{
 			Timeout: 60 * time.Second, // Prowlarr searches can take longer
 		},
-		logger: logger,
+		logger:         logger,
+		excludedCodecs: cfg.Defaults.ExcludedCodecs,
 	}
 }
 
@@ -126,6 +132,16 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 	resources := make([]*db.Resource, 0, len(results))
 	for _, result := range results {
 		resolution := s.extractResolution(result.Title)
+		codec := s.extractCodec(result.Title)
+
+		// Filter out excluded codecs
+		if s.isCodecExcluded(codec) {
+			s.logger.Info("skipping resource with excluded codec",
+				"entry_id", entry.ID,
+				"title", result.Title,
+				"codec", codec)
+			continue
+		}
 
 		resource := &db.Resource{
 			EntryID:    entry.ID,
@@ -137,6 +153,18 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 			Indexer:    sql.NullString{String: result.Indexer, Valid: result.Indexer != ""},
 		}
 		resources = append(resources, resource)
+	}
+
+	// Check if all resources were filtered out
+	if len(resources) == 0 {
+		if err := s.sm.TransitionWithUpdate(ctx, entry.ID, state.StatusFailed, map[string]any{
+			"failed_stage":  "searching",
+			"failed_reason": "all resources filtered by codec exclusion",
+			"reason":        "no suitable resources",
+		}); err != nil {
+			return fmt.Errorf("failed to transition to failed: %w", err)
+		}
+		return nil
 	}
 
 	// Save resources to database
@@ -245,6 +273,39 @@ func (s *Searcher) extractResolution(title string) string {
 		return matches[1]
 	}
 	return "other"
+}
+
+// extractCodec extracts codec from title using regex
+func (s *Searcher) extractCodec(title string) string {
+	matches := codecRegex.FindStringSubmatch(title)
+	if len(matches) > 1 {
+		codec := strings.ToLower(matches[1])
+		// Normalize codec names
+		switch codec {
+		case "h.264", "h264", "avc":
+			return "x264"
+		case "h.265", "h265", "hevc":
+			return "x265"
+		default:
+			return codec
+		}
+	}
+	return "unknown"
+}
+
+// isCodecExcluded checks if a codec is in the exclusion list
+func (s *Searcher) isCodecExcluded(codec string) bool {
+	if len(s.excludedCodecs) == 0 {
+		return false
+	}
+
+	codecLower := strings.ToLower(codec)
+	for _, excluded := range s.excludedCodecs {
+		if strings.ToLower(excluded) == codecLower {
+			return true
+		}
+	}
+	return false
 }
 
 // decideNextState decides the next state based on ask mode and available resources

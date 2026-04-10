@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/michealmachine/taro/internal/config"
@@ -137,6 +138,161 @@ func TestExtractResolution(t *testing.T) {
 				t.Errorf("extractResolution(%q) = %q, want %q", tt.title, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestExtractCodec(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := &config.Config{
+		Prowlarr: config.ProwlarrConfig{
+			URL:    "http://localhost:9696",
+			APIKey: "test-key",
+		},
+	}
+	database := setupTestDB(t)
+	defer database.Close()
+	sm := state.NewStateMachine(database)
+	s := NewSearcher(cfg, database, sm, logger)
+
+	tests := []struct {
+		name     string
+		title    string
+		expected string
+	}{
+		{
+			name:     "x264 codec",
+			title:    "Movie.2020.1080p.BluRay.x264-GROUP",
+			expected: "x264",
+		},
+		{
+			name:     "x265 codec",
+			title:    "Movie.2020.1080p.WEB-DL.x265-GROUP",
+			expected: "x265",
+		},
+		{
+			name:     "HEVC codec",
+			title:    "Movie.2020.1080p.BluRay.HEVC-GROUP",
+			expected: "x265",
+		},
+		{
+			name:     "H.264 codec",
+			title:    "Movie.2020.1080p.H.264-GROUP",
+			expected: "x264",
+		},
+		{
+			name:     "H.265 codec",
+			title:    "Movie.2020.1080p.H.265-GROUP",
+			expected: "x265",
+		},
+		{
+			name:     "AV1 codec",
+			title:    "Movie.2020.1080p.WEB-DL.AV1-GROUP",
+			expected: "av1",
+		},
+		{
+			name:     "AVC codec",
+			title:    "Movie.2020.1080p.BluRay.AVC-GROUP",
+			expected: "x264",
+		},
+		{
+			name:     "no codec",
+			title:    "Movie.2020.1080p.BluRay",
+			expected: "unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := s.extractCodec(tt.title)
+			if result != tt.expected {
+				t.Errorf("extractCodec(%q) = %q, want %q", tt.title, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCodecFiltering(t *testing.T) {
+	// Create mock Prowlarr server
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := ProwlarrSearchResponse{
+			{
+				Title:     "Test Anime 1080p x264",
+				GUID:      "guid-1",
+				MagnetURL: "magnet:?xt=urn:btih:1234567890",
+				Size:      1024 * 1024 * 500,
+				Seeders:   100,
+				Indexer:   "Nyaa",
+			},
+			{
+				Title:     "Test Anime 1080p AV1",
+				GUID:      "guid-2",
+				MagnetURL: "magnet:?xt=urn:btih:0987654321",
+				Size:      1024 * 1024 * 300,
+				Seeders:   150,
+			},
+			{
+				Title:     "Test Anime 1080p x265",
+				GUID:      "guid-3",
+				MagnetURL: "magnet:?xt=urn:btih:1111111111",
+				Size:      1024 * 1024 * 400,
+				Seeders:   80,
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer mockServer.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := &config.Config{
+		Prowlarr: config.ProwlarrConfig{
+			URL:    mockServer.URL,
+			APIKey: "test-key",
+		},
+		Defaults: config.DefaultsConfig{
+			ExcludedCodecs: []string{"av1", "x265"},
+		},
+	}
+	database := setupTestDB(t)
+	defer database.Close()
+	sm := state.NewStateMachine(database)
+	s := NewSearcher(cfg, database, sm, logger)
+
+	ctx := context.Background()
+
+	// Create test entry with ask_mode=2 (auto-select)
+	entry := &db.Entry{
+		Title:     "Test Anime",
+		MediaType: "anime",
+		Season:    1,
+		Status:    string(state.StatusPending),
+		Source:    "manual",
+		SourceID:  "test-1",
+		AskMode:   2,
+	}
+	if err := database.CreateEntry(ctx, entry); err != nil {
+		t.Fatalf("failed to create test entry: %v", err)
+	}
+
+	// Search should filter out AV1 and x265
+	err := s.Search(ctx, entry)
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	// Verify only x264 resource was saved
+	resources, err := database.ListResourcesByEntry(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("failed to list resources: %v", err)
+	}
+	if len(resources) != 1 {
+		t.Errorf("got %d resources, want 1 (AV1 and x265 should be filtered)", len(resources))
+	}
+
+	// Verify the remaining resource is x264
+	if len(resources) > 0 && !strings.Contains(resources[0].Title, "x264") {
+		t.Errorf("expected x264 resource, got %q", resources[0].Title)
 	}
 }
 

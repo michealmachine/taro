@@ -86,10 +86,11 @@ type OneDriveConfig struct {
 }
 
 type DefaultsConfig struct {
-	Resolution            string `mapstructure:"resolution"`
-	AskMode               bool   `mapstructure:"ask_mode"`
-	SelectionTimeout      string `mapstructure:"selection_timeout"`
-	MaxConcurrentSearches int    `mapstructure:"max_concurrent_searches"`
+	Resolution            string   `mapstructure:"resolution"`
+	AskMode               bool     `mapstructure:"ask_mode"`
+	SelectionTimeout      string   `mapstructure:"selection_timeout"`
+	MaxConcurrentSearches int      `mapstructure:"max_concurrent_searches"`
+	ExcludedCodecs        []string `mapstructure:"excluded_codecs"` // e.g. ["av1", "x265"]
 }
 
 type RetentionConfig struct {
