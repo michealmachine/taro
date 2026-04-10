@@ -73,7 +73,7 @@
     - 处理 Prowlarr 不可达时的降级：条目保持 pending 状态，记录日志，下次调度重试
     - _需求：3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9_
 
-  - [ ] 2.3 实现 PikPak 下载管理模块（internal/downloader/pikpak.go）
+  - [-] 2.3 实现 PikPak 下载管理模块（internal/downloader/pikpak.go）
     - 初始化 pikpak-go SDK 客户端（账号密码登录）
     - 实现登录态过期检测与自动重新登录逻辑
     - 实现 `Submit` 方法：提交磁力链接、记录 pikpak_task_id、状态转为 downloading、加入轮询队列
