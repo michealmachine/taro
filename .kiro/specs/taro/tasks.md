@@ -14,7 +14,7 @@
     - 创建 `config.yaml.example` 配置文件模板
     - _需求：12_
 
-  - [-] 1.2 实现配置管理模块（internal/config/config.go）
+  - [x] 1.2 实现配置管理模块（internal/config/config.go）
     - 使用 viper 加载 YAML 配置文件
     - 实现环境变量覆盖逻辑（TARO_ 前缀）
     - 定义配置结构体，包含所有需求 12 中列出的配置项，以及：
@@ -25,7 +25,7 @@
     - 添加配置验证逻辑（必填项检查）
     - _需求：12_
 
-  - [ ] 1.3 实现数据库模块（internal/db/）
+  - [-] 1.3 实现数据库模块（internal/db/）
     - 创建 `schema.sql`，定义 entries、resources、state_logs 三张表及索引
     - 实现 `db.go`：数据库连接初始化（modernc.org/sqlite）、自动迁移逻辑
     - 实现 `entry.go`：Entry CRUD 操作（Create、Get、Update、List、ListByStatus）
