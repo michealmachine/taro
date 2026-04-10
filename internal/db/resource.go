@@ -30,28 +30,36 @@ func (db *DB) BatchCreateResources(ctx context.Context, resources []*Resource) e
 	}
 
 	return db.WithTx(ctx, func(tx *sqlx.Tx) error {
-		query := `
-			INSERT INTO resources (
-				id, entry_id, title, magnet, size, seeders, resolution, indexer, created_at
-			) VALUES (
-				:id, :entry_id, :title, :magnet, :size, :seeders, :resolution, :indexer, :created_at
-			)
-		`
-
 		for _, resource := range resources {
-			if resource.ID == "" {
-				resource.ID = uuid.New().String()
-			}
-			resource.CreatedAt = time.Now()
-
-			_, err := tx.NamedExecContext(ctx, query, resource)
-			if err != nil {
-				return fmt.Errorf("failed to create resource: %w", err)
+			if err := CreateResourceTx(ctx, tx, resource); err != nil {
+				return err
 			}
 		}
-
 		return nil
 	})
+}
+
+// CreateResourceTx creates a resource within a transaction
+func CreateResourceTx(ctx context.Context, tx *sqlx.Tx, resource *Resource) error {
+	query := `
+		INSERT INTO resources (
+			id, entry_id, title, magnet, size, seeders, resolution, indexer, created_at
+		) VALUES (
+			:id, :entry_id, :title, :magnet, :size, :seeders, :resolution, :indexer, :created_at
+		)
+	`
+
+	if resource.ID == "" {
+		resource.ID = uuid.New().String()
+	}
+	resource.CreatedAt = time.Now()
+
+	_, err := tx.NamedExecContext(ctx, query, resource)
+	if err != nil {
+		return fmt.Errorf("failed to create resource: %w", err)
+	}
+
+	return nil
 }
 
 // ListResourcesByEntry lists all resources for an entry

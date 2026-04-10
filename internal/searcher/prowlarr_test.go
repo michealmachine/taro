@@ -44,13 +44,24 @@ func TestBuildSearchQuery(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "anime with season",
+			name: "anime from bangumi (no season suffix)",
 			entry: &db.Entry{
 				Title:     "進撃の巨人",
 				MediaType: "anime",
 				Season:    1,
+				Source:    "bangumi",
 			},
-			expected: "進撃の巨人 S01",
+			expected: "進撃の巨人",
+		},
+		{
+			name: "anime from trakt (with season suffix)",
+			entry: &db.Entry{
+				Title:     "Attack on Titan",
+				MediaType: "anime",
+				Season:    1,
+				Source:    "trakt",
+			},
+			expected: "Attack on Titan S01",
 		},
 		{
 			name: "tv show with season 2",

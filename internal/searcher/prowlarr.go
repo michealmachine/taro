@@ -104,14 +104,11 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 	// Call Prowlarr API
 	results, err := s.searchProwlarr(ctx, query)
 	if err != nil {
-		// Transition to failed on search error
-		failErr := s.sm.TransitionWithUpdate(ctx, entry.ID, state.StatusFailed, map[string]any{
-			"failed_stage":  "searching",
-			"failed_reason": fmt.Sprintf("prowlarr search failed: %v", err),
-			"reason":        "search failed",
-		})
-		if failErr != nil {
-			s.logger.Error("failed to transition to failed state", "error", failErr)
+		// Prowlarr unreachable: keep entry in pending state for retry
+		// Transition back to pending (degradation mode)
+		s.logger.Warn("prowlarr search failed, will retry later", "entry_id", entry.ID, "error", err)
+		if transErr := s.sm.Transition(ctx, entry.ID, state.StatusPending, "prowlarr unreachable, will retry"); transErr != nil {
+			s.logger.Error("failed to transition back to pending", "error", transErr)
 		}
 		return fmt.Errorf("prowlarr search failed: %w", err)
 	}
@@ -169,16 +166,48 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 		return nil
 	}
 
-	// Save resources to database
+	// Save resources to database first
 	if err := s.database.BatchCreateResources(ctx, resources); err != nil {
+		// If resource save fails, transition back to pending for retry
+		s.logger.Error("failed to save resources, transitioning back to pending", "entry_id", entry.ID, "error", err)
+		if transErr := s.sm.Transition(ctx, entry.ID, state.StatusPending, "resource save failed, will retry"); transErr != nil {
+			s.logger.Error("failed to transition back to pending", "error", transErr)
+		}
 		return fmt.Errorf("failed to save resources: %w", err)
 	}
 
 	s.logger.Info("saved resources", "entry_id", entry.ID, "count", len(resources))
 
 	// Decide next state based on ask mode
-	if err := s.decideNextState(ctx, entry, resources); err != nil {
-		return fmt.Errorf("failed to decide next state: %w", err)
+	askMode := entry.AskMode
+	shouldAsk := false
+	if askMode == 1 {
+		shouldAsk = true
+	} else if askMode == 0 {
+		shouldAsk = s.config.Defaults.AskMode
+	}
+
+	if shouldAsk {
+		// Transition to needs_selection
+		if err := s.sm.Transition(ctx, entry.ID, state.StatusNeedsSelection, "multiple resources found, user selection required"); err != nil {
+			return fmt.Errorf("failed to transition to needs_selection: %w", err)
+		}
+	} else {
+		// Auto-select best resource
+		best := s.selectBestResource(entry, resources)
+		if best == nil {
+			return fmt.Errorf("no suitable resource found")
+		}
+		s.logger.Info("auto-selected resource", "entry_id", entry.ID, "resource_id", best.ID, "resolution", best.Resolution)
+
+		// Transition to found with selected resource
+		if err := s.sm.TransitionWithUpdate(ctx, entry.ID, state.StatusFound, map[string]any{
+			"selected_resource_id": best.ID,
+			"resolution":           best.Resolution,
+			"reason":               "auto-selected best resource",
+		}); err != nil {
+			return fmt.Errorf("failed to transition to found: %w", err)
+		}
 	}
 
 	return nil
@@ -317,43 +346,6 @@ func (s *Searcher) isCodecExcluded(codec string) bool {
 		}
 	}
 	return false
-}
-
-// decideNextState decides the next state based on ask mode and available resources
-func (s *Searcher) decideNextState(ctx context.Context, entry *db.Entry, resources []*db.Resource) error {
-	// Determine ask mode (0=global, 1=force ask, 2=force auto)
-	askMode := entry.AskMode
-
-	shouldAsk := false
-	if askMode == 1 {
-		// Force ask
-		shouldAsk = true
-	} else if askMode == 0 {
-		// Use global config
-		// Note: config.Defaults.AskMode is a bool where true = ask, false = auto
-		shouldAsk = s.config.Defaults.AskMode
-	}
-	// askMode == 2 means force auto, shouldAsk remains false
-
-	if shouldAsk {
-		// Transition to needs_selection
-		return s.sm.Transition(ctx, entry.ID, state.StatusNeedsSelection, "multiple resources found, user selection required")
-	}
-
-	// Auto-select best resource
-	best := s.selectBestResource(entry, resources)
-	if best == nil {
-		return fmt.Errorf("no suitable resource found")
-	}
-
-	s.logger.Info("auto-selected resource", "entry_id", entry.ID, "resource_id", best.ID, "resolution", best.Resolution)
-
-	// Transition to found with selected resource
-	return s.sm.TransitionWithUpdate(ctx, entry.ID, state.StatusFound, map[string]any{
-		"selected_resource_id": best.ID,
-		"resolution":           best.Resolution,
-		"reason":               "auto-selected best resource",
-	})
 }
 
 // selectBestResource selects the best resource based on resolution priority and seeders

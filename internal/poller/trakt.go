@@ -133,6 +133,11 @@ func (p *TraktPoller) Poll(ctx context.Context) error {
 
 // fetchWatchlist fetches watchlist items of a specific type with pagination
 func (p *TraktPoller) fetchWatchlist(ctx context.Context, itemType string) ([]TraktWatchlistItem, error) {
+	return p.fetchWatchlistWithRetry(ctx, itemType, 0)
+}
+
+// fetchWatchlistWithRetry fetches watchlist with token refresh retry on 401
+func (p *TraktPoller) fetchWatchlistWithRetry(ctx context.Context, itemType string, retryCount int) ([]TraktWatchlistItem, error) {
 	allItems := []TraktWatchlistItem{}
 	page := 1
 	limit := 100
@@ -158,7 +163,16 @@ func (p *TraktPoller) fetchWatchlist(ctx context.Context, itemType string) ([]Tr
 
 		if resp.StatusCode == 401 {
 			resp.Body.Close()
-			return nil, fmt.Errorf("unauthorized: token may be invalid or expired")
+			// Token expired or invalid, try to refresh (only once)
+			if retryCount == 0 {
+				p.logger.Info("received 401, refreshing token and retrying")
+				if err := p.refreshToken(ctx); err != nil {
+					return nil, fmt.Errorf("failed to refresh token after 401: %w", err)
+				}
+				// Retry with new token
+				return p.fetchWatchlistWithRetry(ctx, itemType, retryCount+1)
+			}
+			return nil, fmt.Errorf("unauthorized: token invalid even after refresh")
 		}
 
 		if resp.StatusCode != 200 {

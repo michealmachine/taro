@@ -28,8 +28,8 @@ func Open(dbPath string) (*DB, error) {
 	// 配置连接池
 	// WAL mode allows multiple concurrent readers and one writer
 	// Setting MaxOpenConns > 1 allows better concurrency
-	db.SetMaxOpenConns(5)  // Allow up to 5 concurrent connections
-	db.SetMaxIdleConns(2)  // Keep 2 idle connections for reuse
+	db.SetMaxOpenConns(5) // Allow up to 5 concurrent connections
+	db.SetMaxIdleConns(2) // Keep 2 idle connections for reuse
 
 	// 启用 WAL 模式以提高并发性能
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
