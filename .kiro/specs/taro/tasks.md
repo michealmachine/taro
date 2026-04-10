@@ -7,14 +7,14 @@
 ## 任务列表
 
 - [ ] 1. 基础设施搭建
-  - [ ] 1.1 初始化项目结构和依赖管理
+  - [x] 1.1 初始化项目结构和依赖管理
     - 创建 `cmd/taro/main.go` 和 `cmd/taroctl/main.go` 入口文件
     - 创建 `internal/` 目录结构（config、db、state、poller、searcher、downloader、transfer、webhook、platform、notifier、bot、web、scheduler、health）
     - 初始化 `go.mod`，添加核心依赖：`modernc.org/sqlite`、`github.com/jmoiron/sqlx`、`github.com/a-h/templ`、`github.com/spf13/viper`、`github.com/robfig/cron/v3`、`github.com/lyqingye/pikpak-go`、`github.com/go-telegram-bot-api/telegram-bot-api`
     - 创建 `config.yaml.example` 配置文件模板
     - _需求：12_
 
-  - [ ] 1.2 实现配置管理模块（internal/config/config.go）
+  - [-] 1.2 实现配置管理模块（internal/config/config.go）
     - 使用 viper 加载 YAML 配置文件
     - 实现环境变量覆盖逻辑（TARO_ 前缀）
     - 定义配置结构体，包含所有需求 12 中列出的配置项，以及：
