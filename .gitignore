@@ -1,7 +1,8 @@
 # Binaries
 taro
 taroctl
-taro-*
+taro-*.exe
+taro-*.dll
 taroctl-*
 *.exe
 *.dll
