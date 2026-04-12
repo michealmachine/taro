@@ -119,11 +119,11 @@ func (c *OneDriveChecker) performCheck() {
 // Returns true if healthy, false otherwise
 func (c *OneDriveChecker) CheckMount() bool {
 	// Use rclone lsd to check if the mount is accessible
-	// rclone lsd onedrive: will list directories in the root
+	// Use the configured mountPath instead of hardcoded "onedrive:"
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "rclone", "lsd", "onedrive:")
+	cmd := exec.CommandContext(ctx, "rclone", "lsd", c.mountPath)
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {

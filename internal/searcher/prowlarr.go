@@ -383,6 +383,11 @@ func (s *Searcher) isCodecExcluded(codec string) bool {
 	return false
 }
 
+// SelectBestResourceForEntry selects the best resource for an entry (public method for external use)
+func (s *Searcher) SelectBestResourceForEntry(entry *db.Entry, resources []*db.Resource) *db.Resource {
+	return s.selectBestResource(entry, resources)
+}
+
 // selectBestResource selects the best resource based on resolution priority and seeders
 // Only considers eligible resources (eligible=1)
 func (s *Searcher) selectBestResource(entry *db.Entry, resources []*db.Resource) *db.Resource {
