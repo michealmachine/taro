@@ -291,13 +291,12 @@ func (p *TraktPoller) refreshToken(ctx context.Context) error {
 		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Body = io.NopCloser(bytes.NewReader(body))
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -318,12 +317,22 @@ func (p *TraktPoller) refreshToken(ctx context.Context) error {
 	// Calculate expiration time
 	expiresAt := time.Unix(tokenResp.CreatedAt, 0).Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 
+	// Update memory first (critical: must update before saving to file)
+	p.config.Trakt.AccessToken = tokenResp.AccessToken
+	p.config.Trakt.RefreshToken = tokenResp.RefreshToken
+	p.config.Trakt.TokenExpiresAt = expiresAt
+
 	// Update config and save to file
 	if err := p.config.UpdateTraktToken(tokenResp.AccessToken, tokenResp.RefreshToken, expiresAt); err != nil {
 		p.logger.Warn("failed to save updated trakt token to config", "error", err)
-		// Don't return error, token is still updated in memory
+		// Don't return error, token is already updated in memory
 	}
 
 	p.logger.Info("trakt token refreshed successfully", "expires_at", expiresAt)
 	return nil
+}
+
+// Name returns the poller name
+func (p *TraktPoller) Name() string {
+	return "trakt"
 }

@@ -20,7 +20,11 @@ type DB struct {
 
 // Open opens a database connection and runs migrations
 func Open(dbPath string) (*DB, error) {
-	db, err := sqlx.Open("sqlite", dbPath)
+	// Use DSN with pragma parameters to ensure they apply to all connections
+	// Note: WAL mode is not supported for in-memory databases (:memory:)
+	dsn := dbPath + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)"
+	
+	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -31,16 +35,26 @@ func Open(dbPath string) (*DB, error) {
 	db.SetMaxOpenConns(5) // Allow up to 5 concurrent connections
 	db.SetMaxIdleConns(2) // Keep 2 idle connections for reuse
 
-	// 启用 WAL 模式以提高并发性能
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+	// Verify PRAGMA settings (these are now set via DSN for all connections)
+	var journalMode string
+	if err := db.Get(&journalMode, "PRAGMA journal_mode"); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
+		return nil, fmt.Errorf("failed to verify journal mode: %w", err)
+	}
+	// WAL mode is not supported for in-memory databases, they use "memory" mode
+	if journalMode != "wal" && journalMode != "memory" {
+		db.Close()
+		return nil, fmt.Errorf("unexpected journal mode: %s", journalMode)
 	}
 
-	// 启用外键约束
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+	var foreignKeys int
+	if err := db.Get(&foreignKeys, "PRAGMA foreign_keys"); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+		return nil, fmt.Errorf("failed to verify foreign keys: %w", err)
+	}
+	if foreignKeys != 1 {
+		db.Close()
+		return nil, fmt.Errorf("failed to enable foreign keys, got: %d", foreignKeys)
 	}
 
 	// 运行迁移

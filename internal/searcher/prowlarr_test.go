@@ -138,7 +138,7 @@ func TestExtractResolution(t *testing.T) {
 		{
 			name:     "case insensitive",
 			title:    "Movie Title 1080P BluRay",
-			expected: "1080P",
+			expected: "1080p", // Should be normalized to lowercase
 		},
 	}
 

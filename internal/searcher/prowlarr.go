@@ -222,6 +222,13 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 		}
 		s.logger.Info("auto-selected resource", "entry_id", entry.ID, "resource_id", best.ID, "resolution", best.Resolution)
 
+		// Mark resource as selected
+		best.Selected = true
+		if err := s.database.UpdateResource(ctx, best); err != nil {
+			s.logger.Error("failed to mark resource as selected", "resource_id", best.ID, "error", err)
+			// Don't fail the whole operation, just log the error
+		}
+
 		// Transition to found with selected resource
 		if err := s.sm.TransitionWithUpdate(ctx, entry.ID, state.StatusFound, map[string]any{
 			"selected_resource_id": best.ID,
@@ -332,7 +339,7 @@ func (s *Searcher) extractResolution(title string) string {
 	matches := resolutionRegex.FindStringSubmatch(title)
 	if len(matches) > 1 {
 		// Normalize to lowercase
-		return matches[1]
+		return strings.ToLower(matches[1])
 	}
 	return "other"
 }

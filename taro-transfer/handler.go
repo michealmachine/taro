@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 
 	"github.com/google/uuid"
@@ -20,8 +21,7 @@ type Handler struct {
 func NewHandler(taskManager *TaskManager) *Handler {
 	// Get auth token from environment variable
 	// If not set, use empty string (no authentication)
-	authToken := ""
-	// TODO: Read from environment variable when deploying
+	authToken := os.Getenv("TARO_TRANSFER_TOKEN")
 	
 	return &Handler{
 		taskManager: taskManager,

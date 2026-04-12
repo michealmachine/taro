@@ -145,7 +145,14 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("server.db_path is required")
 	}
 
-	// Logging
+	// Logging (set defaults if not provided)
+	if c.Logging.Level == "" {
+		c.Logging.Level = "info"
+	}
+	if c.Logging.Format == "" {
+		c.Logging.Format = "text"
+	}
+	
 	validLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
 	if !validLevels[c.Logging.Level] {
 		return fmt.Errorf("invalid logging level: %s (must be debug|info|warn|error)", c.Logging.Level)
@@ -179,13 +186,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("transfer.token is required")
 	}
 
-	// OneDrive
-	if c.OneDrive.MountPath == "" {
-		return fmt.Errorf("onedrive.mount_path is required")
-	}
-	if c.OneDrive.MediaRoot == "" {
-		return fmt.Errorf("onedrive.media_root is required")
-	}
+	// OneDrive (optional - if not configured, health check will be skipped)
+	// No validation required here
 
 	// Defaults
 	if c.Defaults.MaxConcurrentSearches <= 0 {

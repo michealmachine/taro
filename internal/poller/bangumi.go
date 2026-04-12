@@ -181,6 +181,11 @@ func (p *BangumiPoller) Poll(ctx context.Context) error {
 
 // getCurrentUser fetches the current user info
 func (p *BangumiPoller) getCurrentUser(ctx context.Context) (*BangumiUser, error) {
+	return p.getCurrentUserWithRetry(ctx, false)
+}
+
+// getCurrentUserWithRetry fetches the current user info with retry control
+func (p *BangumiPoller) getCurrentUserWithRetry(ctx context.Context, retried bool) (*BangumiUser, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", bangumiAPIBase+"/v0/me", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -196,12 +201,15 @@ func (p *BangumiPoller) getCurrentUser(ctx context.Context) (*BangumiUser, error
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 401 {
+		if retried {
+			return nil, fmt.Errorf("still unauthorized after token refresh")
+		}
 		// Token expired, try to refresh
 		if err := p.refreshToken(ctx); err != nil {
 			return nil, fmt.Errorf("failed to refresh token: %w", err)
 		}
-		// Retry with new token
-		return p.getCurrentUser(ctx)
+		// Retry with new token (only once)
+		return p.getCurrentUserWithRetry(ctx, true)
 	}
 
 	if resp.StatusCode != 200 {
@@ -223,6 +231,7 @@ func (p *BangumiPoller) fetchCollections(ctx context.Context, uid int) ([]Bangum
 	offset := 0
 	limit := 100
 
+	retried := false // Prevent infinite recursion
 	for {
 		url := fmt.Sprintf("%s/v0/users/%d/collections?subject_type=2&type=1&limit=%d&offset=%d",
 			bangumiAPIBase, uid, limit, offset)
@@ -239,26 +248,36 @@ func (p *BangumiPoller) fetchCollections(ctx context.Context, uid int) ([]Bangum
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute request: %w", err)
 		}
-		defer resp.Body.Close()
 
+		// Handle 401 before reading body
 		if resp.StatusCode == 401 {
+			resp.Body.Close()
+			if retried {
+				return nil, fmt.Errorf("still unauthorized after token refresh")
+			}
 			// Token expired, try to refresh
 			if err := p.refreshToken(ctx); err != nil {
 				return nil, fmt.Errorf("failed to refresh token: %w", err)
 			}
-			// Retry with new token
-			return p.fetchCollections(ctx, uid)
+			// Retry from beginning with new token
+			retried = true
+			offset = 0
+			allCollections = nil
+			continue
 		}
 
 		if resp.StatusCode != 200 {
 			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 		}
 
 		var response BangumiCollectionResponse
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			resp.Body.Close()
 			return nil, fmt.Errorf("failed to decode response: %w", err)
 		}
+		resp.Body.Close() // Close immediately after reading
 
 		allCollections = append(allCollections, response.Data...)
 

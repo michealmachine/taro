@@ -144,3 +144,38 @@ func (db *DB) DeleteResource(ctx context.Context, id string) error {
 
 	return nil
 }
+
+// UpdateResource updates a resource
+func (db *DB) UpdateResource(ctx context.Context, resource *Resource) error {
+	query := `
+		UPDATE resources SET
+			title = :title,
+			magnet = :magnet,
+			size = :size,
+			seeders = :seeders,
+			resolution = :resolution,
+			codec = :codec,
+			indexer = :indexer,
+			eligible = :eligible,
+			score = :score,
+			selected = :selected,
+			rejected_reason = :rejected_reason
+		WHERE id = :id
+	`
+
+	result, err := db.NamedExecContext(ctx, query, resource)
+	if err != nil {
+		return fmt.Errorf("failed to update resource: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("resource not found: %s", resource.ID)
+	}
+
+	return nil
+}
