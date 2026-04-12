@@ -335,6 +335,29 @@ func (sm *StateMachine) RecoverOnStartup(ctx context.Context, callbacks *Recover
 	return nil
 }
 
+// UpdateFields updates entry fields without changing state (no state transition, no audit log)
+// Use this for in-place updates like refreshing task_id while staying in the same state.
+func (sm *StateMachine) UpdateFields(ctx context.Context, entryID string, updates map[string]any) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	return sm.database.WithTx(ctx, func(tx *sqlx.Tx) error {
+		entry, err := db.GetEntryTx(ctx, tx, entryID)
+		if err != nil {
+			return fmt.Errorf("failed to get entry: %w", err)
+		}
+
+		entry.UpdatedAt = time.Now()
+		sm.applyUpdates(entry, updates)
+
+		if err := db.UpdateEntryTx(ctx, tx, entry); err != nil {
+			return fmt.Errorf("failed to update entry: %w", err)
+		}
+
+		return nil
+	})
+}
+
 // isValidTransition checks if a state transition is valid
 func (sm *StateMachine) isValidTransition(from, to EntryStatus) bool {
 	// Allow transition to cancelled from any non-terminal state

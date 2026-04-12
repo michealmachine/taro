@@ -11,7 +11,7 @@
 | 前端交互 | HTMX（CDN 引入） | 无需 Node 构建，服务端渲染，轻量现代 |
 | 数据库 | SQLite via `modernc.org/sqlite` | 纯 Go 实现，无 CGO，树莓派交叉编译友好 |
 | SQL 工具 | `github.com/jmoiron/sqlx` | 轻量，比 ORM 更直接，比裸 `database/sql` 更方便 |
-| PikPak SDK | `github.com/lyqingye/pikpak-go` | 现成 Go SDK，支持离线下载、文件管理、删除；若维护停滞可直接调用 PikPak REST API |
+| PikPak CLI | `github.com/Bengerthelorf/pikpaktui` | 活跃维护的 Rust CLI（2026年持续更新），通过 `exec.Command` 调用，支持离线下载、文件管理、删除；认证通过 `PIKPAK_USER`/`PIKPAK_PASS` 环境变量传入 |
 | TG Bot | `github.com/go-telegram-bot-api/telegram-bot-api` | 最成熟稳定，stars 最多，inline keyboard 支持完整 |
 | 配置解析 | `github.com/spf13/viper` | 支持 YAML + 环境变量覆盖，自动绑定 |
 | 定时任务 | `github.com/robfig/cron/v3` | 轻量 cron 调度，支持秒级精度 |
@@ -33,7 +33,7 @@
 | Bangumi | OAuth2 Bearer Token | `GET /v0/users/{uid}/collections?subject_type=2&type=1`（想看） |
 | Trakt | OAuth2 Device Code Flow | `GET /sync/watchlist`、`POST /sync/collection` |
 | Prowlarr | API Key（Header `X-Api-Key`） | `GET /api/v1/search?query=&type=search&indexerIds=` |
-| PikPak | 账号密码登录获取 token | 通过 `pikpak-go` SDK 封装 |
+| PikPak | 账号密码（通过 `pikpaktui` CLI 传入） | 通过 `pikpaktui` CLI 调用，支持离线下载、文件删除 |
 | Jellyfin | Webhook 插件推送 | `POST /webhook/jellyfin`（被动接收） |
 
 ---
@@ -455,7 +455,7 @@ var resolutionPriority = map[string]int{
 
 ```go
 type PikPakDownloader struct {
-    client       *pikpakgo.PikPakClient
+    // 通过 pikpaktui CLI 调用，无需 SDK 客户端
     config       *config.Config
     database     *db.DB
     sm           *state.StateMachine
@@ -1154,9 +1154,9 @@ P6 重启恢复完整性：系统重启后，所有 downloading 和 transferring
 3. 数据库字段语义更清晰（存储的是文件路径，而非 rclone 特定格式）
 
 **当前状态：**
-- `internal/downloader/pikpak.go` 中使用 `taskInfo.FileName` 作为占位符
-- 已添加 TODO 注释，需要验证 pikpak-go SDK 是否提供完整路径字段
-- 若 `FileName` 只是文件名，需要查询文件详情获取完整路径
+- `internal/downloader/pikpak.go` 使用 `pikpaktui offline status <task_id> --json` 获取任务状态
+- 任务完成后，`pikpakTaskStatus.Name` 字段作为文件路径（pikpaktui 返回文件名）
+- transfer 服务使用时拼接为 `pikpak:{name}` 作为 rclone 源路径
 
 **影响范围：**
 - `internal/downloader/pikpak.go` 的 `handleTaskCompleted` 方法

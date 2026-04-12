@@ -68,8 +68,8 @@
 1. 创建 Space，选择 Docker 运行时
 2. 上传 Dockerfile 和源代码
 3. 配置 rclone.conf（包含 PikPak 和 OneDrive 配置）
-4. 设置环境变量（可选）：
-   - `TRANSFER_AUTH_TOKEN`: API 认证 token
+4. 设置环境变量（必填）：
+   - `TARO_TRANSFER_TOKEN`: API 认证 token（与主服务 `transfer.token` 配置一致）
 
 ### 本地测试
 
@@ -79,6 +79,7 @@ docker build -t taro-transfer .
 
 # 运行（需要挂载 rclone.conf）
 docker run -p 7860:7860 \
+  -e TARO_TRANSFER_TOKEN=your_shared_token \
   -v ~/.config/rclone:/root/.config/rclone:ro \
   taro-transfer
 ```

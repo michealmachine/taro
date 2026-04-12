@@ -278,11 +278,16 @@ func (p *TraktPoller) refreshToken(ctx context.Context) error {
 
 	url := fmt.Sprintf("%s/oauth/token", traktAPIBase)
 
+	redirectURI := p.config.Trakt.RedirectURI
+	if redirectURI == "" {
+		redirectURI = "urn:ietf:wg:oauth:2.0:oob"
+	}
+
 	payload := map[string]string{
 		"refresh_token": p.config.Trakt.RefreshToken,
 		"client_id":     p.config.Trakt.ClientID,
 		"client_secret": p.config.Trakt.ClientSecret,
-		"redirect_uri":  "urn:ietf:wg:oauth:2.0:oob",
+		"redirect_uri":  redirectURI,
 		"grant_type":    "refresh_token",
 	}
 

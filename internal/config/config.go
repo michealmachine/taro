@@ -49,6 +49,7 @@ type BangumiConfig struct {
 type TraktConfig struct {
 	ClientID       string    `mapstructure:"client_id"`
 	ClientSecret   string    `mapstructure:"client_secret"`
+	RedirectURI    string    `mapstructure:"redirect_uri"`
 	AccessToken    string    `mapstructure:"access_token"`
 	RefreshToken   string    `mapstructure:"refresh_token"`
 	TokenExpiresAt time.Time `mapstructure:"token_expires_at"`

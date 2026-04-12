@@ -192,3 +192,14 @@ func (db *DB) EntryExists(ctx context.Context, source, sourceID string, season i
 
 	return count > 0, nil
 }
+
+// ResetTransferStartedAt resets the transfer_started_at field to a new time
+// Used when a transfer task is resubmitted after not_found to reset the timeout baseline
+func (db *DB) ResetTransferStartedAt(ctx context.Context, entryID string, t time.Time) error {
+	query := `UPDATE entries SET transfer_started_at = ?, updated_at = ? WHERE id = ?`
+	_, err := db.ExecContext(ctx, query, t, time.Now(), entryID)
+	if err != nil {
+		return fmt.Errorf("failed to reset transfer_started_at: %w", err)
+	}
+	return nil
+}

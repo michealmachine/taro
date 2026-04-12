@@ -84,8 +84,7 @@
     - _需求：3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9_
 
   - [x] 2.3 实现 PikPak 下载管理模块（internal/downloader/pikpak.go）
-    - 初始化 pikpak-go SDK 客户端（账号密码登录）
-    - 实现登录态过期检测与自动重新登录逻辑
+    - 通过 `pikpaktui` CLI（`exec.Command`）调用 PikPak，认证通过 PIKPAK_USER/PIKPAK_PASS 环境变量传入
     - 实现 `Submit` 方法（幂等策略）：
       - 检查 entry.pikpak_task_id 是否已存在，若存在先查询 PikPak 确认任务是否活跃
       - 活跃则直接加入轮询队列（使用 download_started_at 作为超时基准），不新建任务
@@ -100,7 +99,7 @@
     - Stop() 使用 sync.Once 防止 double-close
     - _需求：4.1, 4.2, 4.3, 4.4_
 
-  - [ ] 2.4 实现转存协调模块（internal/transfer/coordinator.go）
+  - [x] 2.4 实现转存协调模块（internal/transfer/coordinator.go）
     - 实现目标路径生成逻辑（含路径规范化：统一 `/` 分隔符、末尾带 `/`、特殊字符替换为 `_`）
     - 实现 `Submit` 方法（幂等策略）：
       - 检查 transfer_task_id 是否已存在，若存在先调用 GET /transfer/{id}/status
@@ -116,7 +115,7 @@
     - 处理 taro-transfer 服务不可达时的降级：条目保持 downloaded 状态，下次调度重试
     - _需求：5.6, 5.7, 5.8, 5.9_
 
-  - [ ] 2.5 实现动作服务层（internal/service/action.go）
+  - [x] 2.5 实现动作服务层（internal/service/action.go）
     - 实现 `ActionService`：封装 RetryEntry、CancelEntry、SelectResource、AddEntry 四个核心动作
     - RetryEntry：检查 failure_kind，permanent 类型直接返回错误（不执行重试）；retryable 类型根据 failed_stage 决定重试起点（智能重试）
     - CancelEntry：通过 StateMachine 转为 cancelled（TransitionToFailed 中 code=user_cancelled）
@@ -125,7 +124,7 @@
     - 所有动作通过 StateMachine 执行，不直接操作数据库状态字段
     - _需求：13.1, 13.6_
 
-  - [ ] 2.6 实现 Jellyfin Webhook 处理模块（internal/webhook/jellyfin.go）
+  - [x] 2.6 实现 Jellyfin Webhook 处理模块（internal/webhook/jellyfin.go）
     - 定义 JellyfinItemAddedPayload 结构体（NotificationType、ItemType、Path）
     - 实现 `HandleJellyfin` HTTP handler：解析 POST 请求 body
     - 查询所有 status='transferred' 的条目
@@ -135,21 +134,21 @@
     - 无法匹配时记录日志，返回 200 OK（Jellyfin 不可达不影响系统）
     - _需求：6.1, 6.2, 6.3, 6.4_
 
-  - [ ] 2.7 实现平台状态回调模块（internal/platform/）
-    - [ ] 2.7.1 实现 Bangumi 回调（bangumi.go）
+  - [x] 2.7 实现平台状态回调模块（internal/platform/）
+    - [x] 2.7.1 实现 Bangumi 回调（bangumi.go）
       - 实现 `MarkOwned` 方法：调用 `POST /v0/users/-/collections/{subject_id}`，body 设置 type=3（在看）
       - 处理 OAuth2 token 刷新
       - 失败时记录日志，不影响条目状态
       - _需求：7.1, 7.3_
 
-    - [ ] 2.7.2 实现 Trakt 回调（trakt.go）
+    - [x] 2.7.2 实现 Trakt 回调（trakt.go）
       - 实现 `MarkOwned` 方法：调用 `POST /sync/collection` 标记为 collected
       - 调用 `DELETE /sync/watchlist/remove` 从 watchlist 移除
       - 处理 OAuth2 token 刷新
       - 失败时记录日志，不影响条目状态
       - _需求：7.2, 7.3_
 
-  - [ ] 2.8 实现通知模块（internal/notifier/telegram.go）
+  - [x] 2.8 实现通知模块（internal/notifier/telegram.go）
     - 初始化 telegram-bot-api 客户端
     - 实现 `NotifyNewEntry`：发送新条目添加通知
     - 实现 `NotifyNeedsSelection`：发送候选资源列表 inline keyboard 消息（格式：`select:{entry_id}:{resource_index}`）
@@ -159,15 +158,15 @@
     - 所有发送失败仅记录日志，不抛出错误
     - _需求：8.2, 11.1, 11.2, 11.3, 11.5, 14.2, 14.3_
 
-  - [ ] 2.9 实现 OneDrive 挂载健康检测模块（internal/health/onedrive.go）
-    - 实现 `CheckMount` 方法：检查挂载点路径是否可访问（os.Stat）
+  - [x] 2.9 实现 OneDrive 挂载健康检测模块（internal/health/onedrive.go）
+    - 实现 `CheckMount` 方法：使用 rclone lsd 检查挂载点是否可访问
     - 记录上一次健康状态，状态变化时触发通知
     - 实现定时检测 goroutine（默认 10 分钟间隔）
     - _需求：14.1, 14.2, 14.3, 14.4, 14.5_
 
-  - [ ] 2.10 实现 PikPak 垃圾回收与数据清理模块（internal/downloader/gc.go）
+  - [x] 2.10 实现 PikPak 垃圾回收与数据清理模块（internal/downloader/gc.go）
     - 实现 `RunGC` 方法：查询所有符合清理条件的条目（failed 且超过保留期、或 cancelled）
-    - 调用 pikpak-go SDK 删除文件或任务
+    - 调用 pikpaktui CLI 删除文件（`pikpaktui rm <file_id>`）
     - 删除成功时标记 pikpak_cleaned=1
     - 删除失败时记录日志，继续处理下一个
     - 实现定时执行 goroutine（默认每日一次）

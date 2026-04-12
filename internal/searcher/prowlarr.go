@@ -200,13 +200,19 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 
 	s.logger.Info("saved resources", "entry_id", entry.ID, "count", len(resources))
 
-	// Decide next state based on ask mode
+	// Decide next state based on ask mode and resource count
 	askMode := entry.AskMode
 	shouldAsk := false
 	if askMode == 1 {
 		shouldAsk = true
 	} else if askMode == 0 {
 		shouldAsk = s.config.Defaults.AskMode
+	}
+
+	// If only one eligible resource, auto-select regardless of ask mode
+	if eligibleCount == 1 {
+		shouldAsk = false
+		s.logger.Info("only one eligible resource, auto-selecting", "entry_id", entry.ID)
 	}
 
 	if shouldAsk {

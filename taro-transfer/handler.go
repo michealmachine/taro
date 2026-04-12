@@ -19,9 +19,11 @@ type Handler struct {
 
 // NewHandler creates a new handler
 func NewHandler(taskManager *TaskManager) *Handler {
-	// Get auth token from environment variable
-	// If not set, use empty string (no authentication)
+	// Get auth token from environment variable (REQUIRED)
 	authToken := os.Getenv("TARO_TRANSFER_TOKEN")
+	if authToken == "" {
+		log.Fatal("TARO_TRANSFER_TOKEN environment variable is required")
+	}
 	
 	return &Handler{
 		taskManager: taskManager,
@@ -48,13 +50,11 @@ type GetTransferStatusResponse struct {
 
 // CreateTransfer handles POST /transfer
 func (h *Handler) CreateTransfer(w http.ResponseWriter, r *http.Request) {
-	// Verify authentication if token is set
-	if h.authToken != "" {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader != "Bearer "+h.authToken {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
+	// Verify authentication (always required)
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "Bearer "+h.authToken {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
 	}
 
 	// Parse request body
