@@ -177,7 +177,7 @@
 
 - [ ] 3. taro-transfer 子服务实现
 
-  - [ ] 3.1 实现 taro-transfer 服务（taro-transfer/）
+  - [x] 3.1 实现 taro-transfer 服务（taro-transfer/）
     - 创建 `main.go`：初始化 HTTP 服务器（监听 7860 端口）
     - 创建 `task.go`：定义任务状态管理（sync.Map 存储 task_id -> TaskState）
       - TaskState 包含：status（pending/running/done/failed）、error_message、created_at
