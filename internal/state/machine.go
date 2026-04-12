@@ -126,76 +126,90 @@ func (sm *StateMachine) TransitionWithUpdate(ctx context.Context, entryID string
 	defer sm.mu.Unlock()
 
 	return sm.database.WithTx(ctx, func(tx *sqlx.Tx) error {
-		// Get current entry within transaction
-		entry, err := db.GetEntryTx(ctx, tx, entryID)
-		if err != nil {
-			return fmt.Errorf("failed to get entry: %w", err)
-		}
-
-		from := EntryStatus(entry.Status)
-
-		// Validate transition
-		if !sm.isValidTransition(from, to) {
-			return fmt.Errorf("invalid transition from %s to %s", from, to)
-		}
-
-		// Update entry status
-		now := time.Now()
-		entry.Status = string(to)
-		entry.UpdatedAt = now
-
-		// Automatically set phase start times based on target status
-		switch to {
-		case StatusSearching:
-			entry.SearchStartedAt = sql.NullTime{Time: now, Valid: true}
-		case StatusDownloading:
-			entry.DownloadStartedAt = sql.NullTime{Time: now, Valid: true}
-		case StatusTransferring:
-			entry.TransferStartedAt = sql.NullTime{Time: now, Valid: true}
-		}
-
-		// Set failed_at for failed status
-		if to == StatusFailed {
-			entry.FailedAt = sql.NullTime{Time: now, Valid: true}
-		}
-
-		// Clear failed_at when recovering from failed
-		if from == StatusFailed && to != StatusFailed {
-			entry.FailedAt = sql.NullTime{Valid: false}
-			// Clear failure fields when recovering
-			entry.FailedStage = sql.NullString{Valid: false}
-			entry.FailedReason = sql.NullString{Valid: false}
-			entry.FailureKind = sql.NullString{Valid: false}
-			entry.FailureCode = sql.NullString{Valid: false}
-		}
-
-		// Apply additional updates
-		sm.applyUpdates(entry, updates)
-
-		// Update entry within transaction
-		if err := db.UpdateEntryTx(ctx, tx, entry); err != nil {
-			return fmt.Errorf("failed to update entry: %w", err)
-		}
-
-		// Write audit log within transaction
-		reason := "state transition"
-		if r, ok := updates["reason"].(string); ok && r != "" {
-			reason = r
-		}
-
-		stateLog := &db.StateLog{
-			EntryID:    entryID,
-			FromStatus: string(from),
-			ToStatus:   string(to),
-			Reason:     sql.NullString{String: reason, Valid: true},
-			CreatedAt:  now,
-		}
-		if err := db.CreateStateLogTx(ctx, tx, stateLog); err != nil {
-			return fmt.Errorf("failed to create state log: %w", err)
-		}
-
-		return nil
+		return sm.transitionWithUpdateTx(ctx, tx, entryID, to, updates)
 	})
+}
+
+// TransitionWithUpdateTx performs state transition with updates within an existing transaction
+// This allows callers to compose multiple operations in a single transaction
+func (sm *StateMachine) TransitionWithUpdateTx(ctx context.Context, tx *sqlx.Tx, entryID string, to EntryStatus, updates map[string]any) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	return sm.transitionWithUpdateTx(ctx, tx, entryID, to, updates)
+}
+
+// transitionWithUpdateTx is the internal implementation shared by both public methods
+func (sm *StateMachine) transitionWithUpdateTx(ctx context.Context, tx *sqlx.Tx, entryID string, to EntryStatus, updates map[string]any) error {
+	// Get current entry within transaction
+	entry, err := db.GetEntryTx(ctx, tx, entryID)
+	if err != nil {
+		return fmt.Errorf("failed to get entry: %w", err)
+	}
+
+	from := EntryStatus(entry.Status)
+
+	// Validate transition
+	if !sm.isValidTransition(from, to) {
+		return fmt.Errorf("invalid transition from %s to %s", from, to)
+	}
+
+	// Update entry status
+	now := time.Now()
+	entry.Status = string(to)
+	entry.UpdatedAt = now
+
+	// Automatically set phase start times based on target status
+	switch to {
+	case StatusSearching:
+		entry.SearchStartedAt = sql.NullTime{Time: now, Valid: true}
+	case StatusDownloading:
+		entry.DownloadStartedAt = sql.NullTime{Time: now, Valid: true}
+	case StatusTransferring:
+		entry.TransferStartedAt = sql.NullTime{Time: now, Valid: true}
+	}
+
+	// Set failed_at for failed status
+	if to == StatusFailed {
+		entry.FailedAt = sql.NullTime{Time: now, Valid: true}
+	}
+
+	// Clear failed_at when recovering from failed
+	if from == StatusFailed && to != StatusFailed {
+		entry.FailedAt = sql.NullTime{Valid: false}
+		// Clear failure fields when recovering
+		entry.FailedStage = sql.NullString{Valid: false}
+		entry.FailedReason = sql.NullString{Valid: false}
+		entry.FailureKind = sql.NullString{Valid: false}
+		entry.FailureCode = sql.NullString{Valid: false}
+	}
+
+	// Apply additional updates
+	sm.applyUpdates(entry, updates)
+
+	// Update entry within transaction
+	if err := db.UpdateEntryTx(ctx, tx, entry); err != nil {
+		return fmt.Errorf("failed to update entry: %w", err)
+	}
+
+	// Write audit log within transaction
+	reason := "state transition"
+	if r, ok := updates["reason"].(string); ok && r != "" {
+		reason = r
+	}
+
+	stateLog := &db.StateLog{
+		EntryID:    entryID,
+		FromStatus: string(from),
+		ToStatus:   string(to),
+		Reason:     sql.NullString{String: reason, Valid: true},
+		CreatedAt:  now,
+	}
+	if err := db.CreateStateLogTx(ctx, tx, stateLog); err != nil {
+		return fmt.Errorf("failed to create state log: %w", err)
+	}
+
+	return nil
 }
 
 // applyUpdates applies additional field updates to an entry

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -146,11 +148,22 @@ func (h *Handler) executeTransfer(taskID, sourcePath, targetPath string) {
 	source := fmt.Sprintf("pikpak:%s", sourcePath)
 	target := fmt.Sprintf("onedrive:%s", targetPath)
 
-	// Execute rclone copy
-	cmd := exec.Command("rclone", "copy", source, target, "-v")
+	// Execute rclone copy with 30 minute timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "rclone", "copy", source, target, "-v")
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
+		// Check if timeout
+		if ctx.Err() == context.DeadlineExceeded {
+			errorMsg := fmt.Sprintf("rclone copy timeout after 30 minutes: %s", string(output))
+			log.Printf("transfer timeout: task_id=%s", taskID)
+			h.taskManager.UpdateTaskStatus(taskID, TaskStatusFailed, errorMsg)
+			return
+		}
+
 		// Transfer failed
 		errorMsg := fmt.Sprintf("rclone copy failed: %v, output: %s", err, string(output))
 		log.Printf("transfer failed: task_id=%s error=%s", taskID, errorMsg)
@@ -160,15 +173,23 @@ func (h *Handler) executeTransfer(taskID, sourcePath, targetPath string) {
 
 	log.Printf("transfer completed, deleting source: task_id=%s", taskID)
 
-	// Transfer succeeded, delete source file from PikPak
-	deleteCmd := exec.Command("rclone", "delete", source, "-v")
+	// Transfer succeeded, delete source file from PikPak with 10 minute timeout
+	deleteCtx, deleteCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer deleteCancel()
+
+	deleteCmd := exec.CommandContext(deleteCtx, "rclone", "delete", source, "-v")
 	deleteOutput, deleteErr := deleteCmd.CombinedOutput()
 
 	if deleteErr != nil {
-		// Delete failed, but transfer succeeded
-		// Log warning but mark task as done
-		log.Printf("warning: failed to delete source file: task_id=%s error=%v output=%s",
-			taskID, deleteErr, string(deleteOutput))
+		// Check if timeout
+		if deleteCtx.Err() == context.DeadlineExceeded {
+			log.Printf("warning: delete timeout after 10 minutes: task_id=%s", taskID)
+		} else {
+			// Delete failed, but transfer succeeded
+			// Log warning but mark task as done
+			log.Printf("warning: failed to delete source file: task_id=%s error=%v output=%s",
+				taskID, deleteErr, string(deleteOutput))
+		}
 	}
 
 	// Mark task as done

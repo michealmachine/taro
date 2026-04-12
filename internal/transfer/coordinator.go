@@ -170,24 +170,27 @@ func (c *Coordinator) generateTargetPath(entry *db.Entry) string {
 		mediaRoot = "/media" // lowercase, consistent with design
 	}
 
+	// Sanitize title BEFORE joining (replace special characters including /)
+	sanitizedTitle := sanitizeTitle(entry.Title)
+
 	var targetPath string
 	switch entry.MediaType {
 	case "anime":
 		// Anime: /media/anime/{Title}/Season 01/
-		targetPath = path.Join(mediaRoot, "anime", entry.Title, fmt.Sprintf("Season %02d", entry.Season))
+		targetPath = path.Join(mediaRoot, "anime", sanitizedTitle, fmt.Sprintf("Season %02d", entry.Season))
 	case "tv":
 		// TV: /media/tv/{Title}/Season 01/
-		targetPath = path.Join(mediaRoot, "tv", entry.Title, fmt.Sprintf("Season %02d", entry.Season))
+		targetPath = path.Join(mediaRoot, "tv", sanitizedTitle, fmt.Sprintf("Season %02d", entry.Season))
 	case "movie":
 		// Movie: /media/movies/{Title} ({year})/
 		yearStr := ""
 		if entry.Year.Valid {
 			yearStr = fmt.Sprintf(" (%d)", entry.Year.Int64)
 		}
-		targetPath = path.Join(mediaRoot, "movies", entry.Title+yearStr)
+		targetPath = path.Join(mediaRoot, "movies", sanitizedTitle+yearStr)
 	default:
 		// Fallback
-		targetPath = path.Join(mediaRoot, "other", entry.Title)
+		targetPath = path.Join(mediaRoot, "other", sanitizedTitle)
 	}
 
 	// Normalize path
@@ -200,6 +203,19 @@ func (c *Coordinator) generateTargetPath(entry *db.Entry) string {
 // - Special characters replaced with `_` (for filesystem compatibility)
 // - Remove consecutive `//`
 // - Trailing `/`
+// sanitizeTitle replaces special characters in title to prevent path issues
+// Must be called BEFORE path.Join to avoid / being treated as separator
+func sanitizeTitle(title string) string {
+	// Replace all filesystem-unsafe characters with underscore
+	// Including / and \ which would be treated as path separators
+	specialChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+	result := title
+	for _, char := range specialChars {
+		result = strings.ReplaceAll(result, char, "_")
+	}
+	return result
+}
+
 func normalizePath(inputPath string) string {
 	// Replace backslashes with forward slashes
 	inputPath = strings.ReplaceAll(inputPath, "\\", "/")
@@ -208,6 +224,7 @@ func normalizePath(inputPath string) string {
 	inputPath = strings.ToLower(inputPath)
 
 	// Replace special characters with underscore (filesystem compatibility)
+	// This is needed for both generated paths and webhook paths
 	specialChars := []string{":", "*", "?", "\"", "<", ">", "|"}
 	for _, char := range specialChars {
 		inputPath = strings.ReplaceAll(inputPath, char, "_")
@@ -449,25 +466,18 @@ func (c *Coordinator) pollTransfer(entryID string) error {
 			return nil
 		}
 
-		// Update transfer_task_id and reset transfer_started_at (reset timeout baseline)
-		// Use UpdateFields + direct DB update instead of TransitionWithUpdate to avoid
-		// illegal transferring -> transferring self-loop transition
+		// Update transfer_task_id and reset transfer_started_at atomically
+		// Use UpdateFields to avoid illegal transferring -> transferring self-loop transition
 		now := time.Now()
 		updates := map[string]any{
-			"transfer_task_id": newTaskID,
+			"transfer_task_id":    newTaskID,
+			"transfer_started_at": now, // Reset timeout baseline
 		}
 		if err := c.stateMachine.UpdateFields(ctx, entryID, updates); err != nil {
 			c.logger.Error("failed to update entry after resubmit",
 				"entry_id", entryID,
 				"error", err)
 			return nil
-		}
-
-		// Reset transfer_started_at directly so timeout baseline is fresh
-		if err := c.database.ResetTransferStartedAt(ctx, entryID, now); err != nil {
-			c.logger.Warn("failed to reset transfer_started_at after resubmit",
-				"entry_id", entryID,
-				"error", err)
 		}
 
 		c.logger.Info("transfer task resubmitted",

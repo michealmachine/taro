@@ -288,7 +288,7 @@ func TestTaskStateConcurrency(t *testing.T) {
 
 	// Simulate concurrent reads and writes
 	done := make(chan bool)
-	
+
 	// Writer goroutine
 	go func() {
 		for i := 0; i < 100; i++ {

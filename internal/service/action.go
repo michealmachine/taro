@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/michealmachine/taro/internal/db"
 	"github.com/michealmachine/taro/internal/state"
 )
@@ -141,56 +142,61 @@ func (s *ActionService) CancelEntry(ctx context.Context, entryID string) error {
 
 // SelectResource selects a specific resource for an entry
 // Validates resource belongs to entry and is eligible
+// Uses transaction to ensure atomicity of resource selection and state transition
 func (s *ActionService) SelectResource(ctx context.Context, entryID, resourceID string) error {
-	// Get entry
-	entry, err := s.database.GetEntry(ctx, entryID)
-	if err != nil {
-		return fmt.Errorf("failed to get entry: %w", err)
-	}
+	// Execute in transaction to ensure atomicity
+	return s.database.WithTx(ctx, func(tx *sqlx.Tx) error {
+		// Get entry
+		entry, err := db.GetEntryTx(ctx, tx, entryID)
+		if err != nil {
+			return fmt.Errorf("failed to get entry: %w", err)
+		}
 
-	// Validate entry is in needs_selection state
-	if entry.Status != string(state.StatusNeedsSelection) {
-		return fmt.Errorf("entry must be in needs_selection state, current: %s", entry.Status)
-	}
+		// Validate entry is in needs_selection state
+		if entry.Status != string(state.StatusNeedsSelection) {
+			return fmt.Errorf("entry must be in needs_selection state, current: %s", entry.Status)
+		}
 
-	// Get resource
-	resource, err := s.database.GetResource(ctx, resourceID)
-	if err != nil {
-		return fmt.Errorf("failed to get resource: %w", err)
-	}
+		// Get resource
+		resource, err := db.GetResourceTx(ctx, tx, resourceID)
+		if err != nil {
+			return fmt.Errorf("failed to get resource: %w", err)
+		}
 
-	// Validate resource belongs to this entry
-	if resource.EntryID != entryID {
-		return fmt.Errorf("resource does not belong to this entry")
-	}
+		// Validate resource belongs to this entry
+		if resource.EntryID != entryID {
+			return fmt.Errorf("resource does not belong to this entry")
+		}
 
-	// Validate resource is eligible
-	if !resource.Eligible {
-		return fmt.Errorf("resource is not eligible (filtered out)")
-	}
+		// Validate resource is eligible
+		if !resource.Eligible {
+			return fmt.Errorf("resource is not eligible (filtered out)")
+		}
 
-	// Mark resource as selected
-	resource.Selected = true
-	if err := s.database.UpdateResource(ctx, resource); err != nil {
-		return fmt.Errorf("failed to update resource: %w", err)
-	}
+		// Mark resource as selected
+		resource.Selected = true
+		if err := db.UpdateResourceTx(ctx, tx, resource); err != nil {
+			return fmt.Errorf("failed to update resource: %w", err)
+		}
 
-	// Transition to found and record selected_resource_id
-	updates := map[string]any{
-		"selected_resource_id": resourceID,
-		"resolution":           resource.Resolution.String,
-		"reason":               "resource selected by user",
-	}
-	if err := s.stateMachine.TransitionWithUpdate(ctx, entryID, state.StatusFound, updates); err != nil {
-		return fmt.Errorf("failed to transition to found: %w", err)
-	}
+		// Transition to found and record selected_resource_id
+		// This calls TransitionWithUpdateTx which handles state machine logic in transaction
+		updates := map[string]any{
+			"selected_resource_id": resourceID,
+			"resolution":           resource.Resolution.String,
+			"reason":               "resource selected by user",
+		}
+		if err := s.stateMachine.TransitionWithUpdateTx(ctx, tx, entryID, state.StatusFound, updates); err != nil {
+			return fmt.Errorf("failed to transition to found: %w", err)
+		}
 
-	s.logger.Info("resource selected",
-		"entry_id", entryID,
-		"resource_id", resourceID,
-		"title", resource.Title)
+		s.logger.Info("resource selected",
+			"entry_id", entryID,
+			"resource_id", resourceID,
+			"title", resource.Title)
 
-	return nil
+		return nil
+	})
 }
 
 // AddEntry creates a new manual entry

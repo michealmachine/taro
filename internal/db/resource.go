@@ -112,6 +112,22 @@ func (db *DB) GetResource(ctx context.Context, id string) (*Resource, error) {
 	return &resource, nil
 }
 
+// GetResourceTx retrieves a resource by ID within a transaction
+func GetResourceTx(ctx context.Context, q Queryer, id string) (*Resource, error) {
+	var resource Resource
+	query := `SELECT * FROM resources WHERE id = ?`
+
+	err := q.GetContext(ctx, &resource, query, id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("resource not found: %s", id)
+		}
+		return nil, fmt.Errorf("failed to get resource: %w", err)
+	}
+
+	return &resource, nil
+}
+
 // DeleteResourcesByEntry deletes all resources for an entry
 func (db *DB) DeleteResourcesByEntry(ctx context.Context, entryID string) error {
 	query := `DELETE FROM resources WHERE entry_id = ?`
@@ -164,6 +180,41 @@ func (db *DB) UpdateResource(ctx context.Context, resource *Resource) error {
 	`
 
 	result, err := db.NamedExecContext(ctx, query, resource)
+	if err != nil {
+		return fmt.Errorf("failed to update resource: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rows == 0 {
+		return fmt.Errorf("resource not found: %s", resource.ID)
+	}
+
+	return nil
+}
+
+// UpdateResourceTx updates a resource within a transaction
+func UpdateResourceTx(ctx context.Context, q Queryer, resource *Resource) error {
+	query := `
+		UPDATE resources SET
+			title = :title,
+			magnet = :magnet,
+			size = :size,
+			seeders = :seeders,
+			resolution = :resolution,
+			codec = :codec,
+			indexer = :indexer,
+			eligible = :eligible,
+			score = :score,
+			selected = :selected,
+			rejected_reason = :rejected_reason
+		WHERE id = :id
+	`
+
+	result, err := q.NamedExecContext(ctx, query, resource)
 	if err != nil {
 		return fmt.Errorf("failed to update resource: %w", err)
 	}

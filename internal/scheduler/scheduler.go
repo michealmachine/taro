@@ -20,23 +20,23 @@ type Scheduler struct {
 	db     *db.DB
 
 	// Task handlers
-	onPendingTask         func(ctx context.Context) error
-	onFoundTask           func(ctx context.Context) error
-	onDownloadedTask      func(ctx context.Context) error
-	onSelectionTimeout    func(ctx context.Context) error
-	onBangumiPoll         func(ctx context.Context) error
-	onTraktPoll           func(ctx context.Context) error
-	onHealthCheck         func(ctx context.Context) error
-	onGarbageCollection   func(ctx context.Context) error
+	onPendingTask       func(ctx context.Context) error
+	onFoundTask         func(ctx context.Context) error
+	onDownloadedTask    func(ctx context.Context) error
+	onSelectionTimeout  func(ctx context.Context) error
+	onBangumiPoll       func(ctx context.Context) error
+	onTraktPoll         func(ctx context.Context) error
+	onHealthCheck       func(ctx context.Context) error
+	onGarbageCollection func(ctx context.Context) error
 
 	// Semaphore for concurrent search limit
 	searchSemaphore chan struct{}
 
 	// Task running flags (skip if previous round not complete)
-	pendingRunning   bool
-	foundRunning     bool
+	pendingRunning    bool
+	foundRunning      bool
 	downloadedRunning bool
-	mu               sync.Mutex
+	mu                sync.Mutex
 
 	// Context for graceful shutdown
 	ctx    context.Context
