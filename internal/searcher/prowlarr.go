@@ -189,8 +189,8 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 	}
 
 	// Save resources to database first
+	// CRITICAL: If save fails, transition back to pending (not failed) to preserve search results for retry
 	if err := s.database.BatchCreateResources(ctx, resources); err != nil {
-		// If resource save fails, transition back to pending for retry
 		s.logger.Error("failed to save resources, transitioning back to pending", "entry_id", entry.ID, "error", err)
 		if transErr := s.sm.Transition(ctx, entry.ID, state.StatusPending, "resource save failed, will retry"); transErr != nil {
 			s.logger.Error("failed to transition back to pending", "error", transErr)
