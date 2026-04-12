@@ -207,8 +207,8 @@
     - 实现任务跳过逻辑（上一轮未完成时跳过本次）
     - _需求：1.1, 2.3, 2.4, 3.1, 4.1, 5.6, 8.8, 14.1, 15.1_
 
-  - [ ] 4.2 实现主服务入口（cmd/taro/main.go）
-    - [ ] 4.2.1 配置加载与日志初始化
+  - [x] 4.2 实现主服务入口（cmd/taro/main.go）
+    - [x] 4.2.1 配置加载与日志初始化
       - 加载配置（支持 --config 参数）
       - **按模块惰性校验**（不做一刀切必填）：
         - 核心必填（缺失则启动失败）：server.port、server.db_path、prowlarr.url、prowlarr.api_key、pikpak.username、pikpak.password、transfer.url、transfer.token
@@ -216,7 +216,7 @@
       - 初始化 log/slog（根据 logging.level 和 logging.format 配置）
       - _需求：12.1, 12.2_
     
-    - [ ] 4.2.2 依赖注入与模块初始化
+    - [x] 4.2.2 依赖注入与模块初始化
       - 初始化数据库连接和自动迁移（使用简单的 CREATE TABLE IF NOT EXISTS 策略）
       - 初始化状态机并执行 RecoverOnStartup
       - 按顺序初始化所有业务模块：
@@ -231,7 +231,7 @@
         9. GC
       - _需求：1.6_
     
-    - [ ] 4.2.3 启动后台服务
+    - [x] 4.2.3 启动后台服务
       - 启动调度器
       - 启动 Downloader 和 TransferCoordinator 的轮询 goroutine
       - 启动 Health 检测 goroutine
@@ -240,7 +240,7 @@
       - 启动 TG Bot
       - _需求：1.6_
     
-    - [ ] 4.2.4 优雅关闭
+    - [x] 4.2.4 优雅关闭
       - 监听 SIGINT/SIGTERM 信号
       - 关闭顺序：
         1. 停止接收新请求（关闭 HTTP 服务器、TG Bot）
