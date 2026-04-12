@@ -102,7 +102,7 @@ func (u *TraktUpdater) addToCollectionWithRetry(ctx context.Context, entry *db.E
 
 	// Build request body based on media type
 	var reqBody map[string]interface{}
-	
+
 	traktID, err := strconv.Atoi(entry.SourceID)
 	if err != nil {
 		return fmt.Errorf("invalid trakt ID: %w", err)
@@ -194,7 +194,7 @@ func (u *TraktUpdater) removeFromWatchlistWithRetry(ctx context.Context, entry *
 
 	// Build request body based on media type
 	var reqBody map[string]interface{}
-	
+
 	traktID, err := strconv.Atoi(entry.SourceID)
 	if err != nil {
 		return fmt.Errorf("invalid trakt ID: %w", err)

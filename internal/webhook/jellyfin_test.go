@@ -59,10 +59,10 @@ func TestNormalizePath(t *testing.T) {
 
 func TestPathMatching(t *testing.T) {
 	tests := []struct {
-		name         string
-		webhookPath  string
-		targetPath   string
-		shouldMatch  bool
+		name        string
+		webhookPath string
+		targetPath  string
+		shouldMatch bool
 	}{
 		{
 			name:        "exact match",

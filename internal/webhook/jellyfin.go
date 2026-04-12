@@ -42,12 +42,14 @@ func (h *JellyfinHandler) SetOnInLibraryCallback(callback func(ctx context.Conte
 
 // JellyfinItemAddedPayload represents the webhook payload from Jellyfin
 // Users must configure Jellyfin webhook plugin with a custom JSON template that includes:
-// {
-//   "NotificationType": "{{NotificationType}}",
-//   "ItemType": "{{ItemType}}",
-//   "Name": "{{Name}}",
-//   "Path": "{{Path}}"  // This must be added manually in the template
-// }
+//
+//	{
+//	  "NotificationType": "{{NotificationType}}",
+//	  "ItemType": "{{ItemType}}",
+//	  "Name": "{{Name}}",
+//	  "Path": "{{Path}}"  // This must be added manually in the template
+//	}
+//
 // Note: Jellyfin webhook plugin doesn't provide Path by default, users need to add it
 type JellyfinItemAddedPayload struct {
 	NotificationType string `json:"NotificationType"`
@@ -193,7 +195,7 @@ func normalizePath(inputPath string) string {
 
 	// Convert to lowercase for case-insensitive comparison
 	inputPath = strings.ToLower(inputPath)
-	
+
 	// Replace special characters with underscore (filesystem compatibility)
 	specialChars := []string{":", "*", "?", "\"", "<", ">", "|"}
 	for _, char := range specialChars {

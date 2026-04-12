@@ -23,7 +23,7 @@ func Open(dbPath string) (*DB, error) {
 	// Use DSN with pragma parameters to ensure they apply to all connections
 	// Note: WAL mode is not supported for in-memory databases (:memory:)
 	dsn := dbPath + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)"
-	
+
 	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)

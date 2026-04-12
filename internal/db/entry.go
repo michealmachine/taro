@@ -23,23 +23,23 @@ type Entry struct {
 	Resolution         sql.NullString `db:"resolution"`
 	SelectedResourceID sql.NullString `db:"selected_resource_id"`
 	// 阶段开始时间（用于超时判断和恢复逻辑）
-	SearchStartedAt    sql.NullTime   `db:"search_started_at"`
-	DownloadStartedAt  sql.NullTime   `db:"download_started_at"`
-	TransferStartedAt  sql.NullTime   `db:"transfer_started_at"`
-	PikPakTaskID       sql.NullString `db:"pikpak_task_id"`
-	PikPakFileID       sql.NullString `db:"pikpak_file_id"`
-	PikPakFilePath     sql.NullString `db:"pikpak_file_path"`
-	PikPakCleaned      bool           `db:"pikpak_cleaned"`
-	TransferTaskID     sql.NullString `db:"transfer_task_id"`
-	TargetPath         sql.NullString `db:"target_path"`
+	SearchStartedAt   sql.NullTime   `db:"search_started_at"`
+	DownloadStartedAt sql.NullTime   `db:"download_started_at"`
+	TransferStartedAt sql.NullTime   `db:"transfer_started_at"`
+	PikPakTaskID      sql.NullString `db:"pikpak_task_id"`
+	PikPakFileID      sql.NullString `db:"pikpak_file_id"`
+	PikPakFilePath    sql.NullString `db:"pikpak_file_path"`
+	PikPakCleaned     bool           `db:"pikpak_cleaned"`
+	TransferTaskID    sql.NullString `db:"transfer_task_id"`
+	TargetPath        sql.NullString `db:"target_path"`
 	// 失败信息（结构化）
-	FailedStage        sql.NullString `db:"failed_stage"`
-	FailedReason       sql.NullString `db:"failed_reason"`
-	FailureKind        sql.NullString `db:"failure_kind"` // 'retryable' | 'permanent'
-	FailureCode        sql.NullString `db:"failure_code"` // 结构化失败代码
-	FailedAt           sql.NullTime   `db:"failed_at"`
-	CreatedAt          time.Time      `db:"created_at"`
-	UpdatedAt          time.Time      `db:"updated_at"`
+	FailedStage  sql.NullString `db:"failed_stage"`
+	FailedReason sql.NullString `db:"failed_reason"`
+	FailureKind  sql.NullString `db:"failure_kind"` // 'retryable' | 'permanent'
+	FailureCode  sql.NullString `db:"failure_code"` // 结构化失败代码
+	FailedAt     sql.NullTime   `db:"failed_at"`
+	CreatedAt    time.Time      `db:"created_at"`
+	UpdatedAt    time.Time      `db:"updated_at"`
 }
 
 // CreateEntry creates a new entry

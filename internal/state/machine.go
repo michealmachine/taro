@@ -117,9 +117,10 @@ func (sm *StateMachine) TransitionToFailed(ctx context.Context, entryID string, 
 
 // TransitionWithUpdate executes a state transition and updates additional fields within a transaction
 // 状态机自动设置阶段开始时间：
-//   searching  -> 自动设置 search_started_at
-//   downloading -> 自动设置 download_started_at
-//   transferring -> 自动设置 transfer_started_at
+//
+//	searching  -> 自动设置 search_started_at
+//	downloading -> 自动设置 download_started_at
+//	transferring -> 自动设置 transfer_started_at
 func (sm *StateMachine) TransitionWithUpdate(ctx context.Context, entryID string, to EntryStatus, updates map[string]any) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()

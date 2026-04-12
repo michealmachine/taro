@@ -45,7 +45,7 @@ type PollingTask struct {
 type pikpakTaskStatus struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
-	Phase    string `json:"phase"`   // "PHASE_TYPE_PENDING" | "PHASE_TYPE_RUNNING" | "PHASE_TYPE_COMPLETE" | "PHASE_TYPE_ERROR"
+	Phase    string `json:"phase"` // "PHASE_TYPE_PENDING" | "PHASE_TYPE_RUNNING" | "PHASE_TYPE_COMPLETE" | "PHASE_TYPE_ERROR"
 	Progress int    `json:"progress"`
 	FileID   string `json:"file_id"`
 	Message  string `json:"message"`

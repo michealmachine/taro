@@ -19,18 +19,18 @@ import (
 
 // Coordinator manages file transfers from PikPak to OneDrive
 type Coordinator struct {
-	cfg         *config.Config
-	database    *db.DB
+	cfg          *config.Config
+	database     *db.DB
 	stateMachine *state.StateMachine
-	logger      *slog.Logger
-	httpClient  *http.Client
+	logger       *slog.Logger
+	httpClient   *http.Client
 
 	// Polling management
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	stopOnce   sync.Once
-	
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	stopOnce sync.Once
+
 	// Active transfers being polled
 	// map[entryID]*TransferInfo
 	activeTransfers sync.Map
@@ -50,12 +50,12 @@ func NewCoordinator(
 	logger *slog.Logger,
 ) *Coordinator {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &Coordinator{
-		cfg:         cfg,
-		database:    database,
+		cfg:          cfg,
+		database:     database,
 		stateMachine: stateMachine,
-		logger:      logger,
+		logger:       logger,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -203,95 +203,95 @@ func (c *Coordinator) generateTargetPath(entry *db.Entry) string {
 func normalizePath(inputPath string) string {
 	// Replace backslashes with forward slashes
 	inputPath = strings.ReplaceAll(inputPath, "\\", "/")
-	
+
 	// Convert to lowercase for case-insensitive comparison
 	inputPath = strings.ToLower(inputPath)
-	
+
 	// Replace special characters with underscore (filesystem compatibility)
 	specialChars := []string{":", "*", "?", "\"", "<", ">", "|"}
 	for _, char := range specialChars {
 		inputPath = strings.ReplaceAll(inputPath, char, "_")
 	}
-	
+
 	// Remove consecutive slashes
 	for strings.Contains(inputPath, "//") {
 		inputPath = strings.ReplaceAll(inputPath, "//", "/")
 	}
-	
+
 	// Ensure trailing slash
 	if !strings.HasSuffix(inputPath, "/") {
 		inputPath += "/"
 	}
-	
+
 	return inputPath
 }
 
 // createTransferTask creates a transfer task via taro-transfer API
 func (c *Coordinator) createTransferTask(ctx context.Context, sourcePath, targetPath string) (string, error) {
 	url := fmt.Sprintf("%s/transfer", strings.TrimSuffix(c.cfg.Transfer.URL, "/"))
-	
+
 	reqBody := map[string]string{
 		"source_path": sourcePath,
 		"target_path": targetPath,
 	}
-	
+
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
-	
+
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(bodyBytes)))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Transfer.Token)
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
 	}
-	
+
 	var respBody struct {
 		TaskID string `json:"task_id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	return respBody.TaskID, nil
 }
 
 // getTransferStatus gets the status of a transfer task
 func (c *Coordinator) getTransferStatus(ctx context.Context, taskID string) (string, error) {
 	url := fmt.Sprintf("%s/transfer/%s/status", strings.TrimSuffix(c.cfg.Transfer.URL, "/"), taskID)
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	// Add Authorization header
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Transfer.Token)
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
 	}
-	
+
 	var respBody struct {
 		Status string `json:"status"`
 		Error  string `json:"error"`
@@ -299,7 +299,7 @@ func (c *Coordinator) getTransferStatus(ctx context.Context, taskID string) (str
 	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
-	
+
 	return respBody.Status, nil
 }
 
@@ -312,7 +312,7 @@ func (c *Coordinator) StartPolling() {
 // pollLoop polls transfer tasks periodically
 func (c *Coordinator) pollLoop() {
 	defer c.wg.Done()
-	
+
 	// Parse poll interval from config
 	pollInterval := 60 * time.Second // default
 	if c.cfg.Transfer.PollInterval != "" {
@@ -324,12 +324,12 @@ func (c *Coordinator) pollLoop() {
 			pollInterval = duration
 		}
 	}
-	
+
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
-	
+
 	c.logger.Info("transfer polling started", "interval", pollInterval)
-	
+
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -345,14 +345,14 @@ func (c *Coordinator) pollLoop() {
 func (c *Coordinator) pollActiveTransfers() {
 	c.activeTransfers.Range(func(key, value any) bool {
 		entryID := key.(string)
-		
+
 		// Poll this transfer
 		if err := c.pollTransfer(entryID); err != nil {
 			c.logger.Error("failed to poll transfer",
 				"entry_id", entryID,
 				"error", err)
 		}
-		
+
 		return true
 	})
 }
@@ -360,18 +360,18 @@ func (c *Coordinator) pollActiveTransfers() {
 // pollTransfer polls a single transfer task
 func (c *Coordinator) pollTransfer(entryID string) error {
 	ctx := context.Background()
-	
+
 	entry, err := c.database.GetEntry(ctx, entryID)
 	if err != nil {
 		return fmt.Errorf("failed to get entry: %w", err)
 	}
-	
+
 	// Skip if not in transferring state
 	if entry.Status != string(state.StatusTransferring) {
 		c.removeFromPolling(entryID)
 		return nil
 	}
-	
+
 	// Check if task_id exists
 	if !entry.TransferTaskID.Valid || entry.TransferTaskID.String == "" {
 		c.logger.Error("entry in transferring state but missing transfer_task_id",
@@ -379,9 +379,9 @@ func (c *Coordinator) pollTransfer(entryID string) error {
 		c.removeFromPolling(entryID)
 		return nil
 	}
-	
+
 	taskID := entry.TransferTaskID.String
-	
+
 	// Check timeout (use transfer_started_at as baseline)
 	if entry.TransferStartedAt.Valid {
 		elapsed := time.Since(entry.TransferStartedAt.Time)
@@ -397,7 +397,7 @@ func (c *Coordinator) pollTransfer(entryID string) error {
 				fmt.Sprintf("transfer timeout after %v", elapsed))
 		}
 	}
-	
+
 	// Get transfer status
 	status, err := c.getTransferStatus(ctx, taskID)
 	if err != nil {
@@ -408,7 +408,7 @@ func (c *Coordinator) pollTransfer(entryID string) error {
 		// Service unreachable, keep polling
 		return nil
 	}
-	
+
 	switch status {
 	case "done":
 		// Transfer completed
@@ -417,7 +417,7 @@ func (c *Coordinator) pollTransfer(entryID string) error {
 			"task_id", taskID)
 		c.removeFromPolling(entryID)
 		return c.stateMachine.Transition(ctx, entryID, state.StatusTransferred, "transfer completed")
-		
+
 	case "failed":
 		// Transfer failed
 		c.logger.Error("transfer failed",
@@ -428,17 +428,17 @@ func (c *Coordinator) pollTransfer(entryID string) error {
 			state.FailureServiceUnreachable,
 			"transferring",
 			"transfer task failed")
-		
+
 	case "not_found":
 		// Task not found (HF Space restarted), resubmit task
 		c.logger.Warn("transfer task not found, resubmitting",
 			"entry_id", entryID,
 			"task_id", taskID)
 		c.removeFromPolling(entryID)
-		
+
 		// Generate target path
 		targetPath := c.generateTargetPath(entry)
-		
+
 		// Create new transfer task
 		newTaskID, err := c.createTransferTask(ctx, entry.PikPakFilePath.String, targetPath)
 		if err != nil {
@@ -448,7 +448,7 @@ func (c *Coordinator) pollTransfer(entryID string) error {
 			// Service unreachable, will retry on next poll
 			return nil
 		}
-		
+
 		// Update transfer_task_id and reset transfer_started_at (reset timeout baseline)
 		// Use UpdateFields + direct DB update instead of TransitionWithUpdate to avoid
 		// illegal transferring -> transferring self-loop transition
@@ -469,7 +469,7 @@ func (c *Coordinator) pollTransfer(entryID string) error {
 				"entry_id", entryID,
 				"error", err)
 		}
-		
+
 		c.logger.Info("transfer task resubmitted",
 			"entry_id", entryID,
 			"old_task_id", taskID,
@@ -477,7 +477,7 @@ func (c *Coordinator) pollTransfer(entryID string) error {
 
 		// Add back to polling with fresh transfer_started_at
 		c.addToPolling(entryID, newTaskID, now)
-		
+
 	case "pending", "running":
 		// Still in progress, continue polling
 		c.logger.Debug("transfer in progress",
@@ -485,7 +485,7 @@ func (c *Coordinator) pollTransfer(entryID string) error {
 			"task_id", taskID,
 			"status", status)
 	}
-	
+
 	return nil
 }
 
@@ -495,7 +495,7 @@ func (c *Coordinator) ResumePolling(entryID, taskID string, transferStartedAt ti
 		"entry_id", entryID,
 		"task_id", taskID,
 		"transfer_started_at", transferStartedAt)
-	
+
 	c.addToPolling(entryID, taskID, transferStartedAt)
 	return nil
 }

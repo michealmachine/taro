@@ -241,7 +241,7 @@ func (gc *GarbageCollector) cleanResources(ctx context.Context) error {
 // cleanStateLogs cleans old state logs
 func (gc *GarbageCollector) cleanStateLogs(ctx context.Context) error {
 	retentionDays := gc.config.Retention.StateLogsDays
-	
+
 	// 0 means keep forever
 	if retentionDays == 0 {
 		gc.logger.Debug("state log retention set to 0 (keep forever)")

@@ -15,11 +15,11 @@ import (
 
 func TestTraktUpdater_MarkOwned(t *testing.T) {
 	tests := []struct {
-		name              string
-		entry             *db.Entry
-		collectionStatus  int
-		watchlistStatus   int
-		wantErr           bool
+		name             string
+		entry            *db.Entry
+		collectionStatus int
+		watchlistStatus  int
+		wantErr          bool
 	}{
 		{
 			name: "successful movie update",

@@ -60,11 +60,11 @@ func (tm *TaskManager) UpdateTaskStatus(taskID string, status TaskStatus, errorM
 	if !ok {
 		return
 	}
-	
+
 	state := value.(*TaskState)
 	state.Status = status
 	state.ErrorMessage = errorMessage
 	state.UpdatedAt = time.Now()
-	
+
 	tm.tasks.Store(taskID, state)
 }

@@ -153,7 +153,7 @@ func (c *Config) Validate() error {
 	if c.Logging.Format == "" {
 		c.Logging.Format = "text"
 	}
-	
+
 	validLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
 	if !validLevels[c.Logging.Level] {
 		return fmt.Errorf("invalid logging level: %s (must be debug|info|warn|error)", c.Logging.Level)

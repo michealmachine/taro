@@ -127,14 +127,14 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 	// Store ALL search results (including filtered ones) with eligible flag
 	resources := make([]*db.Resource, 0, len(results))
 	eligibleCount := 0
-	
+
 	for _, result := range results {
 		resolution := s.extractResolution(result.Title)
 		codec := s.extractCodec(result.Title)
 
 		// Check if codec is excluded
 		isExcluded := s.isCodecExcluded(codec)
-		
+
 		resource := &db.Resource{
 			EntryID:    entry.ID,
 			Title:      result.Title,
@@ -181,7 +181,7 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 			}
 			return fmt.Errorf("failed to save resources: %w", err)
 		}
-		
+
 		if err := s.sm.TransitionToFailed(ctx, entry.ID, state.FailureAllCodecsExcluded, "searching", "all resources filtered by codec exclusion"); err != nil {
 			return fmt.Errorf("failed to transition to failed: %w", err)
 		}

@@ -49,7 +49,7 @@ func (c *OneDriveChecker) Start(ctx context.Context) {
 	c.mu.Lock()
 	c.started = true
 	c.mu.Unlock()
-	
+
 	c.logger.Info("starting OneDrive health checker",
 		"mount_path", c.mountPath,
 		"check_interval", c.checkInterval)
@@ -82,12 +82,12 @@ func (c *OneDriveChecker) Stop() {
 		c.mu.RLock()
 		wasStarted := c.started
 		c.mu.RUnlock()
-		
+
 		if !wasStarted {
 			c.logger.Debug("Stop() called but Start() was never called")
 			return
 		}
-		
+
 		close(c.stopCh)
 		<-c.stoppedCh
 	})

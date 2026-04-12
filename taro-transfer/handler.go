@@ -24,7 +24,7 @@ func NewHandler(taskManager *TaskManager) *Handler {
 	if authToken == "" {
 		log.Fatal("TARO_TRANSFER_TOKEN environment variable is required")
 	}
-	
+
 	return &Handler{
 		taskManager: taskManager,
 		authToken:   authToken,
@@ -142,7 +142,7 @@ func (h *Handler) executeTransfer(taskID, sourcePath, targetPath string) {
 	// Execute rclone copy
 	cmd := exec.Command("rclone", "copy", source, target, "-v")
 	output, err := cmd.CombinedOutput()
-	
+
 	if err != nil {
 		// Transfer failed
 		errorMsg := fmt.Sprintf("rclone copy failed: %v, output: %s", err, string(output))
@@ -156,11 +156,11 @@ func (h *Handler) executeTransfer(taskID, sourcePath, targetPath string) {
 	// Transfer succeeded, delete source file from PikPak
 	deleteCmd := exec.Command("rclone", "delete", source, "-v")
 	deleteOutput, deleteErr := deleteCmd.CombinedOutput()
-	
+
 	if deleteErr != nil {
 		// Delete failed, but transfer succeeded
 		// Log warning but mark task as done
-		log.Printf("warning: failed to delete source file: task_id=%s error=%v output=%s", 
+		log.Printf("warning: failed to delete source file: task_id=%s error=%v output=%s",
 			taskID, deleteErr, string(deleteOutput))
 	}
 
