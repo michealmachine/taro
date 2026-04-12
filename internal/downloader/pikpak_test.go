@@ -55,7 +55,7 @@ func TestAddRemoveQueue(t *testing.T) {
 	}
 	database := setupTestDB(t)
 	defer database.Close()
-	sm := state.NewStateMachine(database)
+	sm := state.NewStateMachine(database, logger)
 
 	// Note: We can't actually create a downloader without valid PikPak credentials
 	// So we'll test the queue management logic separately
@@ -69,8 +69,8 @@ func TestAddRemoveQueue(t *testing.T) {
 	}
 
 	// Test add to queue
-	downloader.addToQueue("entry-1", "task-1")
-	downloader.addToQueue("entry-2", "task-2")
+	downloader.addToQueue("entry-1", "task-1", time.Now())
+	downloader.addToQueue("entry-2", "task-2", time.Now())
 
 	downloader.queueMu.RLock()
 	if len(downloader.pollingQueue) != 2 {
@@ -101,7 +101,7 @@ func TestResumePolling(t *testing.T) {
 	}
 	database := setupTestDB(t)
 	defer database.Close()
-	sm := state.NewStateMachine(database)
+	sm := state.NewStateMachine(database, logger)
 
 	downloader := &PikPakDownloader{
 		logger:       logger,

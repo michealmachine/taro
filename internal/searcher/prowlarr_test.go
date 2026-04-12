@@ -35,7 +35,7 @@ func TestBuildSearchQuery(t *testing.T) {
 	}
 	database := setupTestDB(t)
 	defer database.Close()
-	sm := state.NewStateMachine(database)
+	sm := state.NewStateMachine(database, logger)
 	s := NewSearcher(cfg, database, sm, logger)
 
 	tests := []struct {
@@ -102,7 +102,7 @@ func TestExtractResolution(t *testing.T) {
 	}
 	database := setupTestDB(t)
 	defer database.Close()
-	sm := state.NewStateMachine(database)
+	sm := state.NewStateMachine(database, logger)
 	s := NewSearcher(cfg, database, sm, logger)
 
 	tests := []struct {
@@ -162,7 +162,7 @@ func TestExtractCodec(t *testing.T) {
 	}
 	database := setupTestDB(t)
 	defer database.Close()
-	sm := state.NewStateMachine(database)
+	sm := state.NewStateMachine(database, logger)
 	s := NewSearcher(cfg, database, sm, logger)
 
 	tests := []struct {
@@ -267,7 +267,7 @@ func TestCodecFiltering(t *testing.T) {
 	}
 	database := setupTestDB(t)
 	defer database.Close()
-	sm := state.NewStateMachine(database)
+	sm := state.NewStateMachine(database, logger)
 	s := NewSearcher(cfg, database, sm, logger)
 
 	ctx := context.Background()
@@ -292,18 +292,36 @@ func TestCodecFiltering(t *testing.T) {
 		t.Fatalf("Search() error = %v", err)
 	}
 
-	// Verify only x264 resource was saved
+	// Verify all resources were saved (including filtered ones)
 	resources, err := database.ListResourcesByEntry(ctx, entry.ID)
 	if err != nil {
 		t.Fatalf("failed to list resources: %v", err)
 	}
-	if len(resources) != 1 {
-		t.Errorf("got %d resources, want 1 (AV1 and x265 should be filtered)", len(resources))
+	if len(resources) != 3 {
+		t.Errorf("got %d resources, want 3 (all results should be saved)", len(resources))
 	}
 
-	// Verify the remaining resource is x264
-	if len(resources) > 0 && !strings.Contains(resources[0].Title, "x264") {
-		t.Errorf("expected x264 resource, got %q", resources[0].Title)
+	// Verify only x264 is eligible
+	eligibleResources, err := database.ListEligibleByEntry(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("failed to list eligible resources: %v", err)
+	}
+	if len(eligibleResources) != 1 {
+		t.Errorf("got %d eligible resources, want 1 (only x264 should be eligible)", len(eligibleResources))
+	}
+
+	// Verify the eligible resource is x264
+	if len(eligibleResources) > 0 && !strings.Contains(eligibleResources[0].Title, "x264") {
+		t.Errorf("expected x264 resource, got %q", eligibleResources[0].Title)
+	}
+
+	// Verify filtered resources have rejected_reason
+	for _, r := range resources {
+		if !r.Eligible {
+			if !r.RejectedReason.Valid || r.RejectedReason.String == "" {
+				t.Errorf("filtered resource %q missing rejected_reason", r.Title)
+			}
+		}
 	}
 }
 
@@ -317,7 +335,7 @@ func TestSelectBestResource(t *testing.T) {
 	}
 	database := setupTestDB(t)
 	defer database.Close()
-	sm := state.NewStateMachine(database)
+	sm := state.NewStateMachine(database, logger)
 	s := NewSearcher(cfg, database, sm, logger)
 
 	tests := []struct {
@@ -332,8 +350,8 @@ func TestSelectBestResource(t *testing.T) {
 				Resolution: sql.NullString{String: "1080p", Valid: true},
 			},
 			resources: []*db.Resource{
-				{ID: "1", Resolution: sql.NullString{String: "720p", Valid: true}, Seeders: sql.NullInt64{Int64: 100, Valid: true}},
-				{ID: "2", Resolution: sql.NullString{String: "1080p", Valid: true}, Seeders: sql.NullInt64{Int64: 50, Valid: true}},
+				{ID: "1", Resolution: sql.NullString{String: "720p", Valid: true}, Seeders: sql.NullInt64{Int64: 100, Valid: true}, Eligible: true},
+				{ID: "2", Resolution: sql.NullString{String: "1080p", Valid: true}, Seeders: sql.NullInt64{Int64: 50, Valid: true}, Eligible: true},
 			},
 			expectedID: "2", // 1080p wins despite fewer seeders
 		},
@@ -343,8 +361,8 @@ func TestSelectBestResource(t *testing.T) {
 				Resolution: sql.NullString{String: "1080p", Valid: true},
 			},
 			resources: []*db.Resource{
-				{ID: "1", Resolution: sql.NullString{String: "1080p", Valid: true}, Seeders: sql.NullInt64{Int64: 50, Valid: true}},
-				{ID: "2", Resolution: sql.NullString{String: "1080p", Valid: true}, Seeders: sql.NullInt64{Int64: 200, Valid: true}},
+				{ID: "1", Resolution: sql.NullString{String: "1080p", Valid: true}, Seeders: sql.NullInt64{Int64: 50, Valid: true}, Eligible: true},
+				{ID: "2", Resolution: sql.NullString{String: "1080p", Valid: true}, Seeders: sql.NullInt64{Int64: 200, Valid: true}, Eligible: true},
 			},
 			expectedID: "2", // More seeders wins
 		},
@@ -352,9 +370,9 @@ func TestSelectBestResource(t *testing.T) {
 			name:  "resolution priority: 1080p > 1080i > 720p",
 			entry: &db.Entry{},
 			resources: []*db.Resource{
-				{ID: "1", Resolution: sql.NullString{String: "720p", Valid: true}, Seeders: sql.NullInt64{Int64: 100, Valid: true}},
-				{ID: "2", Resolution: sql.NullString{String: "1080i", Valid: true}, Seeders: sql.NullInt64{Int64: 50, Valid: true}},
-				{ID: "3", Resolution: sql.NullString{String: "1080p", Valid: true}, Seeders: sql.NullInt64{Int64: 10, Valid: true}},
+				{ID: "1", Resolution: sql.NullString{String: "720p", Valid: true}, Seeders: sql.NullInt64{Int64: 100, Valid: true}, Eligible: true},
+				{ID: "2", Resolution: sql.NullString{String: "1080i", Valid: true}, Seeders: sql.NullInt64{Int64: 50, Valid: true}, Eligible: true},
+				{ID: "3", Resolution: sql.NullString{String: "1080p", Valid: true}, Seeders: sql.NullInt64{Int64: 10, Valid: true}, Eligible: true},
 			},
 			expectedID: "3", // 1080p wins
 		},
@@ -437,7 +455,7 @@ func TestSearchProwlarr(t *testing.T) {
 	}
 	database := setupTestDB(t)
 	defer database.Close()
-	sm := state.NewStateMachine(database)
+	sm := state.NewStateMachine(database, logger)
 	s := NewSearcher(cfg, database, sm, logger)
 
 	ctx := context.Background()
@@ -484,7 +502,7 @@ func TestSearchNoResults(t *testing.T) {
 	}
 	database := setupTestDB(t)
 	defer database.Close()
-	sm := state.NewStateMachine(database)
+	sm := state.NewStateMachine(database, logger)
 	s := NewSearcher(cfg, database, sm, logger)
 
 	ctx := context.Background()
@@ -558,7 +576,7 @@ func TestSearchAutoSelect(t *testing.T) {
 	}
 	database := setupTestDB(t)
 	defer database.Close()
-	sm := state.NewStateMachine(database)
+	sm := state.NewStateMachine(database, logger)
 	s := NewSearcher(cfg, database, sm, logger)
 
 	ctx := context.Background()
@@ -630,7 +648,7 @@ func TestSelectBestResource_PreferredResolution(t *testing.T) {
 	}
 	database := setupTestDB(t)
 	defer database.Close()
-	sm := state.NewStateMachine(database)
+	sm := state.NewStateMachine(database, logger)
 	s := NewSearcher(cfg, database, sm, logger)
 
 	// Test: prefer exact match over higher quality
@@ -638,8 +656,8 @@ func TestSelectBestResource_PreferredResolution(t *testing.T) {
 		Resolution: sql.NullString{String: "720p", Valid: true},
 	}
 	resources := []*db.Resource{
-		{ID: "1", Resolution: sql.NullString{String: "1080p", Valid: true}, Seeders: sql.NullInt64{Int64: 100, Valid: true}},
-		{ID: "2", Resolution: sql.NullString{String: "720p", Valid: true}, Seeders: sql.NullInt64{Int64: 50, Valid: true}},
+		{ID: "1", Resolution: sql.NullString{String: "1080p", Valid: true}, Seeders: sql.NullInt64{Int64: 100, Valid: true}, Eligible: true},
+		{ID: "2", Resolution: sql.NullString{String: "720p", Valid: true}, Seeders: sql.NullInt64{Int64: 50, Valid: true}, Eligible: true},
 	}
 
 	result := s.selectBestResource(entry, resources)

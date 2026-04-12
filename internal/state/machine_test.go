@@ -3,6 +3,8 @@ package state
 import (
 	"context"
 	"database/sql"
+	"log/slog"
+	"os"
 	"testing"
 	"time"
 
@@ -17,11 +19,15 @@ func setupTestDB(t *testing.T) *db.DB {
 	return database
 }
 
+func setupTestLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+}
+
 func TestStateMachine_ValidTransitions(t *testing.T) {
 	database := setupTestDB(t)
 	defer database.Close()
 
-	sm := NewStateMachine(database)
+	sm := NewStateMachine(database, setupTestLogger())
 	ctx := context.Background()
 
 	// Create a test entry
@@ -97,7 +103,7 @@ func TestStateMachine_CancelledTransition(t *testing.T) {
 	database := setupTestDB(t)
 	defer database.Close()
 
-	sm := NewStateMachine(database)
+	sm := NewStateMachine(database, setupTestLogger())
 	ctx := context.Background()
 
 	// Create a test entry
@@ -166,7 +172,7 @@ func TestStateMachine_AuditLog(t *testing.T) {
 	database := setupTestDB(t)
 	defer database.Close()
 
-	sm := NewStateMachine(database)
+	sm := NewStateMachine(database, setupTestLogger())
 	ctx := context.Background()
 
 	// Create a test entry
@@ -237,7 +243,7 @@ func TestStateMachine_TransitionWithUpdate(t *testing.T) {
 	database := setupTestDB(t)
 	defer database.Close()
 
-	sm := NewStateMachine(database)
+	sm := NewStateMachine(database, setupTestLogger())
 	ctx := context.Background()
 
 	// Create a test entry
@@ -282,7 +288,7 @@ func TestStateMachine_FailedAtTimestamp(t *testing.T) {
 	database := setupTestDB(t)
 	defer database.Close()
 
-	sm := NewStateMachine(database)
+	sm := NewStateMachine(database, setupTestLogger())
 	ctx := context.Background()
 
 	// Create a test entry
@@ -332,7 +338,7 @@ func TestStateMachine_RecoverOnStartup(t *testing.T) {
 	database := setupTestDB(t)
 	defer database.Close()
 
-	sm := NewStateMachine(database)
+	sm := NewStateMachine(database, setupTestLogger())
 	ctx := context.Background()
 
 	// Create entries in various states
@@ -359,9 +365,11 @@ func TestStateMachine_RecoverOnStartup(t *testing.T) {
 		}
 		if e.status == StatusDownloading && e.taskID != "" {
 			entry.PikPakTaskID = sql.NullString{String: e.taskID, Valid: true}
+			entry.DownloadStartedAt = sql.NullTime{Time: time.Now().Add(-1 * time.Hour), Valid: true}
 		}
 		if e.status == StatusTransferring && e.taskID != "" {
 			entry.TransferTaskID = sql.NullString{String: e.taskID, Valid: true}
+			entry.TransferStartedAt = sql.NullTime{Time: time.Now().Add(-1 * time.Hour), Valid: true}
 		}
 		if err := database.CreateEntry(ctx, entry); err != nil {
 			t.Fatalf("failed to create entry: %v", err)
@@ -373,11 +381,11 @@ func TestStateMachine_RecoverOnStartup(t *testing.T) {
 	transferringRecovered := []string{}
 
 	callbacks := &RecoveryCallbacks{
-		OnDownloading: func(entryID, taskID string) error {
+		OnDownloading: func(entryID, taskID string, downloadStartedAt time.Time) error {
 			downloadingRecovered = append(downloadingRecovered, taskID)
 			return nil
 		},
-		OnTransferring: func(entryID, taskID string) error {
+		OnTransferring: func(entryID, taskID string, transferStartedAt time.Time) error {
 			transferringRecovered = append(transferringRecovered, taskID)
 			return nil
 		},
@@ -427,7 +435,7 @@ func TestStateMachine_ConcurrentTransitions(t *testing.T) {
 	database := setupTestDB(t)
 	defer database.Close()
 
-	sm := NewStateMachine(database)
+	sm := NewStateMachine(database, setupTestLogger())
 	ctx := context.Background()
 
 	// Create a test entry
@@ -476,5 +484,240 @@ func TestStateMachine_ConcurrentTransitions(t *testing.T) {
 	}
 	if len(logs) != 1 {
 		t.Errorf("expected 1 state log, got %d", len(logs))
+	}
+}
+
+// TestFailureKindOf tests the FailureKindOf function
+func TestFailureKindOf(t *testing.T) {
+	tests := []struct {
+		code FailureCode
+		want FailureKind
+	}{
+		// Retryable failures
+		{FailureNetworkTimeout, FailureRetryable},
+		{FailureServiceUnreachable, FailureRetryable},
+		{FailureAuthTemporary, FailureRetryable},
+		{FailurePikPakTimeout, FailureRetryable},
+		{FailureTransferTimeout, FailureRetryable},
+		// Permanent failures
+		{FailureNoResources, FailurePermanent},
+		{FailureAllCodecsExcluded, FailurePermanent},
+		{FailureUserCancelled, FailurePermanent},
+		{FailureConfigError, FailurePermanent},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.code), func(t *testing.T) {
+			got := FailureKindOf(tt.code)
+			if got != tt.want {
+				t.Errorf("FailureKindOf(%s) = %s, want %s", tt.code, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestStateMachine_TransitionToFailed tests the TransitionToFailed method
+func TestStateMachine_TransitionToFailed(t *testing.T) {
+	database := setupTestDB(t)
+	defer database.Close()
+
+	logger := setupTestLogger()
+	sm := NewStateMachine(database, logger)
+
+	ctx := context.Background()
+
+	// Create test entry
+	entry := &db.Entry{
+		ID:        "test-entry",
+		Title:     "Test Entry",
+		MediaType: "anime",
+		Source:    "manual",
+		SourceID:  "test-123",
+		Season:    1,
+		Status:    string(StatusPending),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := database.CreateEntry(ctx, entry); err != nil {
+		t.Fatalf("failed to create entry: %v", err)
+	}
+
+	// Transition to searching first
+	if err := sm.Transition(ctx, entry.ID, StatusSearching, "start search"); err != nil {
+		t.Fatalf("failed to transition to searching: %v", err)
+	}
+
+	// Test TransitionToFailed with retryable failure
+	err := sm.TransitionToFailed(ctx, entry.ID, FailureNetworkTimeout, "searching", "network timeout occurred")
+	if err != nil {
+		t.Fatalf("TransitionToFailed() failed: %v", err)
+	}
+
+	// Verify entry state
+	updatedEntry, err := database.GetEntry(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("failed to get entry: %v", err)
+	}
+
+	if updatedEntry.Status != string(StatusFailed) {
+		t.Errorf("expected status %s, got %s", StatusFailed, updatedEntry.Status)
+	}
+
+	if !updatedEntry.FailedAt.Valid {
+		t.Error("expected failed_at to be set")
+	}
+
+	if updatedEntry.FailedStage.String != "searching" {
+		t.Errorf("expected failed_stage 'searching', got %s", updatedEntry.FailedStage.String)
+	}
+
+	if updatedEntry.FailedReason.String != "network timeout occurred" {
+		t.Errorf("expected failed_reason 'network timeout occurred', got %s", updatedEntry.FailedReason.String)
+	}
+
+	if updatedEntry.FailureKind.String != string(FailureRetryable) {
+		t.Errorf("expected failure_kind 'retryable', got %s", updatedEntry.FailureKind.String)
+	}
+
+	if updatedEntry.FailureCode.String != string(FailureNetworkTimeout) {
+		t.Errorf("expected failure_code 'network_timeout', got %s", updatedEntry.FailureCode.String)
+	}
+
+	// Test permanent failure
+	entry2 := &db.Entry{
+		ID:        "test-entry-2",
+		Title:     "Test Entry 2",
+		MediaType: "anime",
+		Source:    "manual",
+		SourceID:  "test-456",
+		Season:    1,
+		Status:    string(StatusSearching),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := database.CreateEntry(ctx, entry2); err != nil {
+		t.Fatalf("failed to create entry2: %v", err)
+	}
+
+	err = sm.TransitionToFailed(ctx, entry2.ID, FailureNoResources, "searching", "no resources found")
+	if err != nil {
+		t.Fatalf("TransitionToFailed() failed: %v", err)
+	}
+
+	updatedEntry2, err := database.GetEntry(ctx, entry2.ID)
+	if err != nil {
+		t.Fatalf("failed to get entry2: %v", err)
+	}
+
+	if updatedEntry2.FailureKind.String != string(FailurePermanent) {
+		t.Errorf("expected failure_kind 'permanent', got %s", updatedEntry2.FailureKind.String)
+	}
+
+	if updatedEntry2.FailureCode.String != string(FailureNoResources) {
+		t.Errorf("expected failure_code 'no_resources', got %s", updatedEntry2.FailureCode.String)
+	}
+}
+
+// TestStateMachine_PhaseStartTimes tests automatic phase start time setting
+func TestStateMachine_PhaseStartTimes(t *testing.T) {
+	database := setupTestDB(t)
+	defer database.Close()
+
+	logger := setupTestLogger()
+	sm := NewStateMachine(database, logger)
+
+	ctx := context.Background()
+
+	// Create test entry
+	entry := &db.Entry{
+		ID:        "test-entry",
+		Title:     "Test Entry",
+		MediaType: "anime",
+		Source:    "manual",
+		SourceID:  "test-123",
+		Season:    1,
+		Status:    string(StatusPending),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := database.CreateEntry(ctx, entry); err != nil {
+		t.Fatalf("failed to create entry: %v", err)
+	}
+
+	// Test search_started_at
+	beforeSearch := time.Now()
+	if err := sm.Transition(ctx, entry.ID, StatusSearching, "start search"); err != nil {
+		t.Fatalf("failed to transition to searching: %v", err)
+	}
+	afterSearch := time.Now()
+
+	updatedEntry, err := database.GetEntry(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("failed to get entry: %v", err)
+	}
+
+	if !updatedEntry.SearchStartedAt.Valid {
+		t.Error("expected search_started_at to be set")
+	} else {
+		searchTime := updatedEntry.SearchStartedAt.Time
+		if searchTime.Before(beforeSearch) || searchTime.After(afterSearch) {
+			t.Errorf("search_started_at %v not in expected range [%v, %v]", searchTime, beforeSearch, afterSearch)
+		}
+	}
+
+	// Test download_started_at
+	if err := sm.Transition(ctx, entry.ID, StatusFound, "found resource"); err != nil {
+		t.Fatalf("failed to transition to found: %v", err)
+	}
+
+	beforeDownload := time.Now()
+	if err := sm.TransitionWithUpdate(ctx, entry.ID, StatusDownloading, map[string]any{
+		"pikpak_task_id": "task-123",
+		"reason":         "start download",
+	}); err != nil {
+		t.Fatalf("failed to transition to downloading: %v", err)
+	}
+	afterDownload := time.Now()
+
+	updatedEntry, err = database.GetEntry(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("failed to get entry: %v", err)
+	}
+
+	if !updatedEntry.DownloadStartedAt.Valid {
+		t.Error("expected download_started_at to be set")
+	} else {
+		downloadTime := updatedEntry.DownloadStartedAt.Time
+		if downloadTime.Before(beforeDownload) || downloadTime.After(afterDownload) {
+			t.Errorf("download_started_at %v not in expected range [%v, %v]", downloadTime, beforeDownload, afterDownload)
+		}
+	}
+
+	// Test transfer_started_at
+	if err := sm.Transition(ctx, entry.ID, StatusDownloaded, "download complete"); err != nil {
+		t.Fatalf("failed to transition to downloaded: %v", err)
+	}
+
+	beforeTransfer := time.Now()
+	if err := sm.TransitionWithUpdate(ctx, entry.ID, StatusTransferring, map[string]any{
+		"transfer_task_id": "transfer-123",
+		"reason":           "start transfer",
+	}); err != nil {
+		t.Fatalf("failed to transition to transferring: %v", err)
+	}
+	afterTransfer := time.Now()
+
+	updatedEntry, err = database.GetEntry(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("failed to get entry: %v", err)
+	}
+
+	if !updatedEntry.TransferStartedAt.Valid {
+		t.Error("expected transfer_started_at to be set")
+	} else {
+		transferTime := updatedEntry.TransferStartedAt.Time
+		if transferTime.Before(beforeTransfer) || transferTime.After(afterTransfer) {
+			t.Errorf("transfer_started_at %v not in expected range [%v, %v]", transferTime, beforeTransfer, afterTransfer)
+		}
 	}
 }

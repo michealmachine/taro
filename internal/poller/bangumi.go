@@ -315,16 +315,18 @@ func (p *BangumiPoller) refreshToken(ctx context.Context) error {
 	// Calculate expiration time
 	expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 
-	// Update config and save
+	// Update in-memory config first (critical path)
+	p.cfg.Bangumi.AccessToken = tokenResp.AccessToken
+	p.cfg.Bangumi.RefreshToken = tokenResp.RefreshToken
+	p.cfg.Bangumi.TokenExpiresAt = expiresAt
+
+	// Try to persist to config file (best effort, don't block on failure)
 	if err := p.cfg.UpdateBangumiToken(tokenResp.AccessToken, tokenResp.RefreshToken, expiresAt); err != nil {
-		p.logger.Error("failed to save refreshed token", "error", err)
-		// Still update in-memory config even if save fails
-		p.cfg.Bangumi.AccessToken = tokenResp.AccessToken
-		p.cfg.Bangumi.RefreshToken = tokenResp.RefreshToken
-		p.cfg.Bangumi.TokenExpiresAt = expiresAt
-		return fmt.Errorf("token refreshed but failed to save to config: %w", err)
+		p.logger.Warn("token refreshed but failed to save to config file", "error", err)
+		// Don't return error - token is already updated in memory
+	} else {
+		p.logger.Info("bangumi token refreshed and saved successfully", "expires_at", expiresAt)
 	}
 
-	p.logger.Info("bangumi token refreshed successfully", "expires_at", expiresAt)
 	return nil
 }

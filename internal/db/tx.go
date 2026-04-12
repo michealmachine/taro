@@ -29,14 +29,16 @@ func CreateEntryTx(ctx context.Context, q Queryer, entry *Entry) error {
 
 	query := `
 		INSERT INTO entries (
-			id, title, media_type, source, source_id, season, status, ask_mode, resolution,
-			selected_resource_id, pikpak_task_id, pikpak_file_id, pikpak_file_path, pikpak_cleaned,
-			transfer_task_id, target_path, failed_stage, failed_reason, failed_at,
+			id, title, year, media_type, source, source_id, season, status, ask_mode, resolution,
+			selected_resource_id, search_started_at, download_started_at, transfer_started_at,
+			pikpak_task_id, pikpak_file_id, pikpak_file_path, pikpak_cleaned,
+			transfer_task_id, target_path, failed_stage, failed_reason, failure_kind, failure_code, failed_at,
 			created_at, updated_at
 		) VALUES (
-			:id, :title, :media_type, :source, :source_id, :season, :status, :ask_mode, :resolution,
-			:selected_resource_id, :pikpak_task_id, :pikpak_file_id, :pikpak_file_path, :pikpak_cleaned,
-			:transfer_task_id, :target_path, :failed_stage, :failed_reason, :failed_at,
+			:id, :title, :year, :media_type, :source, :source_id, :season, :status, :ask_mode, :resolution,
+			:selected_resource_id, :search_started_at, :download_started_at, :transfer_started_at,
+			:pikpak_task_id, :pikpak_file_id, :pikpak_file_path, :pikpak_cleaned,
+			:transfer_task_id, :target_path, :failed_stage, :failed_reason, :failure_kind, :failure_code, :failed_at,
 			:created_at, :updated_at
 		)
 	`
@@ -70,6 +72,7 @@ func UpdateEntryTx(ctx context.Context, q Queryer, entry *Entry) error {
 	query := `
 		UPDATE entries SET
 			title = :title,
+			year = :year,
 			media_type = :media_type,
 			source = :source,
 			source_id = :source_id,
@@ -78,6 +81,9 @@ func UpdateEntryTx(ctx context.Context, q Queryer, entry *Entry) error {
 			ask_mode = :ask_mode,
 			resolution = :resolution,
 			selected_resource_id = :selected_resource_id,
+			search_started_at = :search_started_at,
+			download_started_at = :download_started_at,
+			transfer_started_at = :transfer_started_at,
 			pikpak_task_id = :pikpak_task_id,
 			pikpak_file_id = :pikpak_file_id,
 			pikpak_file_path = :pikpak_file_path,
@@ -86,6 +92,8 @@ func UpdateEntryTx(ctx context.Context, q Queryer, entry *Entry) error {
 			target_path = :target_path,
 			failed_stage = :failed_stage,
 			failed_reason = :failed_reason,
+			failure_kind = :failure_kind,
+			failure_code = :failure_code,
 			failed_at = :failed_at,
 			updated_at = :updated_at
 		WHERE id = :id
@@ -112,9 +120,9 @@ func UpdateEntryTx(ctx context.Context, q Queryer, entry *Entry) error {
 func CreateStateLogTx(ctx context.Context, q Queryer, log *StateLog) error {
 	query := `
 		INSERT INTO state_logs (
-			entry_id, from_status, to_status, reason, created_at
+			entry_id, from_status, to_status, reason, metadata, created_at
 		) VALUES (
-			:entry_id, :from_status, :to_status, :reason, :created_at
+			:entry_id, :from_status, :to_status, :reason, :metadata, :created_at
 		)
 	`
 

@@ -117,31 +117,24 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 
 	// Handle no results
 	if len(results) == 0 {
-		if err := s.sm.TransitionWithUpdate(ctx, entry.ID, state.StatusFailed, map[string]any{
-			"failed_stage":  "searching",
-			"failed_reason": "no search results found",
-			"reason":        "no results",
-		}); err != nil {
+		if err := s.sm.TransitionToFailed(ctx, entry.ID, state.FailureNoResources, "searching", "no search results found"); err != nil {
 			return fmt.Errorf("failed to transition to failed: %w", err)
 		}
 		return nil
 	}
 
 	// Parse resolutions and create resource records
+	// Store ALL search results (including filtered ones) with eligible flag
 	resources := make([]*db.Resource, 0, len(results))
+	eligibleCount := 0
+	
 	for _, result := range results {
 		resolution := s.extractResolution(result.Title)
 		codec := s.extractCodec(result.Title)
 
-		// Filter out excluded codecs
-		if s.isCodecExcluded(codec) {
-			s.logger.Info("skipping resource with excluded codec",
-				"entry_id", entry.ID,
-				"title", result.Title,
-				"codec", codec)
-			continue
-		}
-
+		// Check if codec is excluded
+		isExcluded := s.isCodecExcluded(codec)
+		
 		resource := &db.Resource{
 			EntryID:    entry.ID,
 			Title:      result.Title,
@@ -149,18 +142,47 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 			Size:       sql.NullInt64{Int64: result.Size, Valid: result.Size > 0},
 			Seeders:    sql.NullInt64{Int64: int64(result.Seeders), Valid: true},
 			Resolution: sql.NullString{String: resolution, Valid: resolution != ""},
+			Codec:      sql.NullString{String: codec, Valid: codec != ""},
 			Indexer:    sql.NullString{String: result.Indexer, Valid: result.Indexer != ""},
 		}
+
+		if isExcluded {
+			// Mark as ineligible with rejection reason
+			resource.Eligible = false
+			resource.RejectedReason = sql.NullString{
+				String: fmt.Sprintf("codec_excluded:%s", codec),
+				Valid:  true,
+			}
+			s.logger.Info("resource filtered by codec exclusion",
+				"entry_id", entry.ID,
+				"title", result.Title,
+				"codec", codec)
+		} else {
+			// Mark as eligible and calculate score
+			resource.Eligible = true
+			resource.Score = sql.NullInt64{
+				Int64: s.calculateScore(entry, resource),
+				Valid: true,
+			}
+			eligibleCount++
+		}
+
 		resources = append(resources, resource)
 	}
 
 	// Check if all resources were filtered out
-	if len(resources) == 0 {
-		if err := s.sm.TransitionWithUpdate(ctx, entry.ID, state.StatusFailed, map[string]any{
-			"failed_stage":  "searching",
-			"failed_reason": "all resources filtered by codec exclusion",
-			"reason":        "no suitable resources",
-		}); err != nil {
+	if eligibleCount == 0 {
+		// Save all resources first (including filtered ones) before transitioning to failed
+		if err := s.database.BatchCreateResources(ctx, resources); err != nil {
+			// If save fails, transition back to pending for retry (don't lose search results)
+			s.logger.Error("failed to save resources, transitioning back to pending", "entry_id", entry.ID, "error", err)
+			if transErr := s.sm.Transition(ctx, entry.ID, state.StatusPending, "resource save failed, will retry"); transErr != nil {
+				s.logger.Error("failed to transition back to pending", "error", transErr)
+			}
+			return fmt.Errorf("failed to save resources: %w", err)
+		}
+		
+		if err := s.sm.TransitionToFailed(ctx, entry.ID, state.FailureAllCodecsExcluded, "searching", "all resources filtered by codec exclusion"); err != nil {
 			return fmt.Errorf("failed to transition to failed: %w", err)
 		}
 		return nil
@@ -193,7 +215,7 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 			return fmt.Errorf("failed to transition to needs_selection: %w", err)
 		}
 	} else {
-		// Auto-select best resource
+		// Auto-select best resource (only from eligible resources)
 		best := s.selectBestResource(entry, resources)
 		if best == nil {
 			return fmt.Errorf("no suitable resource found")
@@ -203,7 +225,7 @@ func (s *Searcher) Search(ctx context.Context, entry *db.Entry) error {
 		// Transition to found with selected resource
 		if err := s.sm.TransitionWithUpdate(ctx, entry.ID, state.StatusFound, map[string]any{
 			"selected_resource_id": best.ID,
-			"resolution":           best.Resolution,
+			"resolution":           best.Resolution.String,
 			"reason":               "auto-selected best resource",
 		}); err != nil {
 			return fmt.Errorf("failed to transition to found: %w", err)
@@ -349,8 +371,21 @@ func (s *Searcher) isCodecExcluded(codec string) bool {
 }
 
 // selectBestResource selects the best resource based on resolution priority and seeders
+// Only considers eligible resources (eligible=1)
 func (s *Searcher) selectBestResource(entry *db.Entry, resources []*db.Resource) *db.Resource {
 	if len(resources) == 0 {
+		return nil
+	}
+
+	// Filter to only eligible resources
+	eligibleResources := make([]*db.Resource, 0, len(resources))
+	for _, r := range resources {
+		if r.Eligible {
+			eligibleResources = append(eligibleResources, r)
+		}
+	}
+
+	if len(eligibleResources) == 0 {
 		return nil
 	}
 
@@ -365,9 +400,9 @@ func (s *Searcher) selectBestResource(entry *db.Entry, resources []*db.Resource)
 	}
 
 	// Sort resources by priority
-	sort.Slice(resources, func(i, j int) bool {
-		resI := resources[i].Resolution.String
-		resJ := resources[j].Resolution.String
+	sort.Slice(eligibleResources, func(i, j int) bool {
+		resI := eligibleResources[i].Resolution.String
+		resJ := eligibleResources[j].Resolution.String
 
 		// First priority: exact match with preferred resolution
 		matchI := (resI == preferredResolution)
@@ -386,9 +421,41 @@ func (s *Searcher) selectBestResource(entry *db.Entry, resources []*db.Resource)
 		}
 
 		// Third priority: more seeders
-		return resources[i].Seeders.Int64 > resources[j].Seeders.Int64
+		return eligibleResources[i].Seeders.Int64 > eligibleResources[j].Seeders.Int64
 	})
 
 	// Return the best resource
-	return resources[0]
+	return eligibleResources[0]
+}
+
+// calculateScore calculates a score for an eligible resource
+// Higher score = better resource
+func (s *Searcher) calculateScore(entry *db.Entry, resource *db.Resource) int64 {
+	score := int64(0)
+
+	// Get preferred resolution
+	preferredResolution := entry.Resolution.String
+	if preferredResolution == "" {
+		preferredResolution = s.config.Defaults.Resolution
+		if preferredResolution == "" {
+			preferredResolution = "1080p"
+		}
+	}
+
+	// Resolution score (0-1000)
+	if resource.Resolution.String == preferredResolution {
+		score += 1000 // Exact match bonus
+	} else {
+		// Use resolution priority as base score
+		score += int64(resolutionPriority[resource.Resolution.String] * 100)
+	}
+
+	// Seeders score (0-500, capped)
+	seedersScore := resource.Seeders.Int64
+	if seedersScore > 500 {
+		seedersScore = 500
+	}
+	score += seedersScore
+
+	return score
 }

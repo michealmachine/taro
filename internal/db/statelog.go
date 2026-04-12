@@ -14,6 +14,7 @@ type StateLog struct {
 	FromStatus string         `db:"from_status"`
 	ToStatus   string         `db:"to_status"`
 	Reason     sql.NullString `db:"reason"`
+	Metadata   sql.NullString `db:"metadata"` // JSON 格式元信息（v2 候选：记录 resource_id、token_refreshed 等）
 	CreatedAt  time.Time      `db:"created_at"`
 }
 
@@ -23,9 +24,9 @@ func (db *DB) CreateStateLog(ctx context.Context, log *StateLog) error {
 
 	query := `
 		INSERT INTO state_logs (
-			entry_id, from_status, to_status, reason, created_at
+			entry_id, from_status, to_status, reason, metadata, created_at
 		) VALUES (
-			:entry_id, :from_status, :to_status, :reason, :created_at
+			:entry_id, :from_status, :to_status, :reason, :metadata, :created_at
 		)
 	`
 

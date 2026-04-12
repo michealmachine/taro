@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -28,6 +29,42 @@ const (
 	StatusCancelled      EntryStatus = "cancelled"
 )
 
+// FailureKind represents the type of failure
+type FailureKind string
+
+const (
+	FailureRetryable FailureKind = "retryable" // 可重试：网络超时、服务不可达、临时认证失败
+	FailurePermanent FailureKind = "permanent" // 不可重试：无资源、资源损坏、用户取消、配置错误
+)
+
+// FailureCode represents structured failure reasons
+type FailureCode string
+
+const (
+	// Retryable failures（可重试）
+	FailureNetworkTimeout     FailureCode = "network_timeout"
+	FailureServiceUnreachable FailureCode = "service_unreachable"
+	FailureAuthTemporary      FailureCode = "auth_temporary"
+	FailurePikPakTimeout      FailureCode = "pikpak_timeout"
+	FailureTransferTimeout    FailureCode = "transfer_timeout"
+
+	// Permanent failures（不可重试）
+	FailureNoResources       FailureCode = "no_resources"
+	FailureAllCodecsExcluded FailureCode = "all_codecs_excluded"
+	FailureUserCancelled     FailureCode = "user_cancelled"
+	FailureConfigError       FailureCode = "config_error"
+)
+
+// FailureKindOf returns the FailureKind for a given FailureCode
+func FailureKindOf(code FailureCode) FailureKind {
+	switch code {
+	case FailureNoResources, FailureAllCodecsExcluded, FailureUserCancelled, FailureConfigError:
+		return FailurePermanent
+	default:
+		return FailureRetryable
+	}
+}
+
 // validTransitions defines the legal state transitions
 var validTransitions = map[EntryStatus][]EntryStatus{
 	StatusPending:        {StatusSearching},
@@ -45,13 +82,15 @@ var validTransitions = map[EntryStatus][]EntryStatus{
 // StateMachine manages entry state transitions
 type StateMachine struct {
 	database *db.DB
+	logger   *slog.Logger
 	mu       sync.Mutex
 }
 
 // NewStateMachine creates a new state machine
-func NewStateMachine(database *db.DB) *StateMachine {
+func NewStateMachine(database *db.DB, logger *slog.Logger) *StateMachine {
 	return &StateMachine{
 		database: database,
+		logger:   logger,
 	}
 }
 
@@ -60,7 +99,27 @@ func (sm *StateMachine) Transition(ctx context.Context, entryID string, to Entry
 	return sm.TransitionWithUpdate(ctx, entryID, to, map[string]any{"reason": reason})
 }
 
+// TransitionToFailed transitions an entry to failed state with structured failure information
+// failure_kind is automatically derived from the FailureCode using FailureKindOf()
+func (sm *StateMachine) TransitionToFailed(ctx context.Context, entryID string, code FailureCode, stage, reason string) error {
+	kind := FailureKindOf(code)
+
+	updates := map[string]any{
+		"failed_stage":  stage,
+		"failed_reason": reason,
+		"failure_kind":  string(kind),
+		"failure_code":  string(code),
+		"reason":        fmt.Sprintf("failed: %s", reason),
+	}
+
+	return sm.TransitionWithUpdate(ctx, entryID, StatusFailed, updates)
+}
+
 // TransitionWithUpdate executes a state transition and updates additional fields within a transaction
+// 状态机自动设置阶段开始时间：
+//   searching  -> 自动设置 search_started_at
+//   downloading -> 自动设置 download_started_at
+//   transferring -> 自动设置 transfer_started_at
 func (sm *StateMachine) TransitionWithUpdate(ctx context.Context, entryID string, to EntryStatus, updates map[string]any) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -84,6 +143,16 @@ func (sm *StateMachine) TransitionWithUpdate(ctx context.Context, entryID string
 		entry.Status = string(to)
 		entry.UpdatedAt = now
 
+		// Automatically set phase start times based on target status
+		switch to {
+		case StatusSearching:
+			entry.SearchStartedAt = sql.NullTime{Time: now, Valid: true}
+		case StatusDownloading:
+			entry.DownloadStartedAt = sql.NullTime{Time: now, Valid: true}
+		case StatusTransferring:
+			entry.TransferStartedAt = sql.NullTime{Time: now, Valid: true}
+		}
+
 		// Set failed_at for failed status
 		if to == StatusFailed {
 			entry.FailedAt = sql.NullTime{Time: now, Valid: true}
@@ -92,6 +161,11 @@ func (sm *StateMachine) TransitionWithUpdate(ctx context.Context, entryID string
 		// Clear failed_at when recovering from failed
 		if from == StatusFailed && to != StatusFailed {
 			entry.FailedAt = sql.NullTime{Valid: false}
+			// Clear failure fields when recovering
+			entry.FailedStage = sql.NullString{Valid: false}
+			entry.FailedReason = sql.NullString{Valid: false}
+			entry.FailureKind = sql.NullString{Valid: false}
+			entry.FailureCode = sql.NullString{Valid: false}
 		}
 
 		// Apply additional updates
@@ -157,6 +231,14 @@ func (sm *StateMachine) applyUpdates(entry *db.Entry, updates map[string]any) {
 			if v, ok := value.(string); ok {
 				entry.FailedReason = sql.NullString{String: v, Valid: v != ""}
 			}
+		case "failure_kind":
+			if v, ok := value.(string); ok {
+				entry.FailureKind = sql.NullString{String: v, Valid: v != ""}
+			}
+		case "failure_code":
+			if v, ok := value.(string); ok {
+				entry.FailureCode = sql.NullString{String: v, Valid: v != ""}
+			}
 		case "selected_resource_id":
 			if v, ok := value.(string); ok {
 				entry.SelectedResourceID = sql.NullString{String: v, Valid: v != ""}
@@ -171,8 +253,12 @@ func (sm *StateMachine) applyUpdates(entry *db.Entry, updates map[string]any) {
 
 // RecoveryCallbacks contains callbacks for recovering downloading and transferring entries
 type RecoveryCallbacks struct {
-	OnDownloading  func(entryID, taskID string) error
-	OnTransferring func(entryID, taskID string) error
+	// OnDownloading is called for each entry in downloading state
+	// Parameters: entryID, taskID, downloadStartedAt
+	OnDownloading func(entryID, taskID string, downloadStartedAt time.Time) error
+	// OnTransferring is called for each entry in transferring state
+	// Parameters: entryID, taskID, transferStartedAt
+	OnTransferring func(entryID, taskID string, transferStartedAt time.Time) error
 }
 
 // RecoverOnStartup executes recovery logic on system startup
@@ -187,7 +273,7 @@ func (sm *StateMachine) RecoverOnStartup(ctx context.Context, callbacks *Recover
 		if err := sm.Transition(ctx, entry.ID, StatusPending, "reset on startup"); err != nil {
 			// Log error but continue with other entries
 			// Don't let one failed entry block the entire recovery process
-			fmt.Printf("ERROR: failed to reset entry %s: %v\n", entry.ID, err)
+			sm.logger.Error("failed to reset entry on startup", "entry_id", entry.ID, "error", err)
 			continue
 		}
 	}
@@ -201,9 +287,18 @@ func (sm *StateMachine) RecoverOnStartup(ctx context.Context, callbacks *Recover
 
 		for _, entry := range downloadingEntries {
 			if entry.PikPakTaskID.Valid && entry.PikPakTaskID.String != "" {
-				if err := callbacks.OnDownloading(entry.ID, entry.PikPakTaskID.String); err != nil {
+				// Use download_started_at as the timeout baseline (not updated_at)
+				if !entry.DownloadStartedAt.Valid {
+					// Skip entries missing download_started_at - cannot determine accurate timeout
+					sm.logger.Error("entry missing download_started_at, skipping recovery",
+						"entry_id", entry.ID,
+						"task_id", entry.PikPakTaskID.String)
+					continue
+				}
+
+				if err := callbacks.OnDownloading(entry.ID, entry.PikPakTaskID.String, entry.DownloadStartedAt.Time); err != nil {
 					// Log error but continue with other entries
-					fmt.Printf("ERROR: failed to recover downloading entry %s: %v\n", entry.ID, err)
+					sm.logger.Error("failed to recover downloading entry", "entry_id", entry.ID, "error", err)
 					continue
 				}
 			}
@@ -219,9 +314,18 @@ func (sm *StateMachine) RecoverOnStartup(ctx context.Context, callbacks *Recover
 
 		for _, entry := range transferringEntries {
 			if entry.TransferTaskID.Valid && entry.TransferTaskID.String != "" {
-				if err := callbacks.OnTransferring(entry.ID, entry.TransferTaskID.String); err != nil {
+				// Use transfer_started_at as the timeout baseline (not updated_at)
+				if !entry.TransferStartedAt.Valid {
+					// Skip entries missing transfer_started_at - cannot determine accurate timeout
+					sm.logger.Error("entry missing transfer_started_at, skipping recovery",
+						"entry_id", entry.ID,
+						"task_id", entry.TransferTaskID.String)
+					continue
+				}
+
+				if err := callbacks.OnTransferring(entry.ID, entry.TransferTaskID.String, entry.TransferStartedAt.Time); err != nil {
 					// Log error but continue with other entries
-					fmt.Printf("ERROR: failed to recover transferring entry %s: %v\n", entry.ID, err)
+					sm.logger.Error("failed to recover transferring entry", "entry_id", entry.ID, "error", err)
 					continue
 				}
 			}

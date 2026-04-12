@@ -27,19 +27,24 @@
 
   - [x] 1.3 实现数据库模块（internal/db/）
     - 创建 `schema.sql`，定义 entries、resources、state_logs 三张表及索引
+    - entries 表包含：year、阶段时间字段（search_started_at、download_started_at、transfer_started_at）、failure_kind、**failure_code**
+    - resources 表包含：codec、eligible（区分可选/被过滤）、score、selected、rejected_reason 字段
+    - state_logs 表包含：metadata JSON 字段（v2 候选，当前预留）
     - 实现 `db.go`：数据库连接初始化（modernc.org/sqlite）、自动迁移逻辑
     - 实现 `entry.go`：Entry CRUD 操作（Create、Get、Update、List、ListByStatus）
-    - 实现 Resource CRUD 操作（BatchCreate、ListByEntry、Delete）
+    - 实现 Resource CRUD 操作（BatchCreate、ListByEntry、ListEligibleByEntry、Delete）
     - 实现 StateLog 写入操作（Create、ListByEntry）
     - 确保所有数据库操作使用事务保护
     - _需求：1.5_
 
   - [x] 1.4 实现状态机核心模块（internal/state/machine.go）
     - 定义 EntryStatus 枚举和 validTransitions 转换表
+    - 定义 FailureKind、FailureCode 枚举；实现 FailureKindOf(code) 自动推导 kind
     - 实现 `Transition` 方法：验证转换合法性、更新条目状态、写入审计日志
-    - 实现 `TransitionWithUpdate` 方法：状态转换同时更新其他字段（如 pikpak_task_id）
-    - 实现 `RecoverOnStartup` 方法：重置 searching 状态、恢复 downloading 和 transferring 轮询队列
-    - 添加互斥锁保护并发状态转换
+    - 实现 `TransitionWithUpdate` 方法：状态转换同时更新其他字段；**自动设置阶段开始时间**（转换到 searching/downloading/transferring 时分别写入对应字段）
+    - 实现 `TransitionToFailed` 方法：接受 FailureCode，自动推导 failure_kind，持久化 failure_code 到数据库
+    - 实现 `RecoverOnStartup` 方法：重置 searching 状态；通过回调恢复 downloading/transferring 轮询队列（传入 download_started_at/transfer_started_at 作为超时基准）
+    - 添加互斥锁保护并发状态转换；使用 slog 统一日志（不使用 fmt.Printf）
     - _需求：1.1, 1.2, 1.3, 1.4, 1.6_
 
 - [ ] 2. 核心业务模块实现
@@ -63,51 +68,69 @@
       - _需求：2.2, 2.4, 2.5_
 
   - [x] 2.2 实现资源搜索模块（internal/searcher/prowlarr.go）
-    - 实现 `Search` 方法：将条目状态转为 searching
-    - 构造搜索关键词（剧集/动漫：`{title} S{season:02d}`，电影：`{title} {year}`）
-    - 调用 Prowlarr API（`GET /api/v1/search`），根据 media_type 指定 indexerIds
-    - 解析搜索结果，从标题中提取分辨率（正则匹配 1080p|1080i|720p|480p）
-    - 将候选资源批量写入 resources 表
-    - 实现分辨率优先级排序逻辑（1080p > 1080i > 720p > 480p > other）
-    - 根据询问模式决策：无结果→failed，唯一结果→found，多结果→根据询问模式配置
-    - 处理 Prowlarr 不可达时的降级：条目保持 pending 状态，记录日志，下次调度重试
+    - 实现 `Search` 方法：将条目状态转为 searching（StateMachine 自动写入 search_started_at）
+    - 构造搜索关键词（Bangumi 动漫直接用标题，Trakt 动漫/剧集加 S{season:02d}，电影加年份）
+    - 调用 Prowlarr API（`GET /api/v1/search`）
+    - **严格区分异常 vs 无结果**：
+      - Prowlarr 不可达/超时/HTTP 错误 → 条目保持 pending（不转 failed），记录日志
+      - 搜索成功但无结果 → TransitionToFailed（code=no_resources，permanent）
+      - 所有结果被编码过滤 → TransitionToFailed（code=all_codecs_excluded，permanent）
+    - 解析搜索结果，提取分辨率（正则）和编码（正则），过滤排除的编码
+    - 将**所有**搜索结果写入 resources 表（含被过滤项）：
+      - 可选资源：eligible=1，计算 score
+      - 被过滤资源：eligible=0，写入 rejected_reason（如 "codec_excluded:av1"）
+    - 自动选择时只从 eligible=1 的资源中选择
+    - 根据询问模式决策：无可选资源→failed，有资源且自动模式→found，有资源且询问模式→needs_selection
     - _需求：3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9_
 
-  - [-] 2.3 实现 PikPak 下载管理模块（internal/downloader/pikpak.go）
+  - [x] 2.3 实现 PikPak 下载管理模块（internal/downloader/pikpak.go）
     - 初始化 pikpak-go SDK 客户端（账号密码登录）
     - 实现登录态过期检测与自动重新登录逻辑
-    - 实现 `Submit` 方法：提交磁力链接、记录 pikpak_task_id、状态转为 downloading、加入轮询队列
-    - 实现 `StartPolling` goroutine：定时批量查询 PikPak 任务状态
-    - 任务完成时记录 pikpak_file_id 和 pikpak_file_path，状态转为 downloaded
-    - 任务失败时状态转为 failed，记录错误原因
-    - 实现 `ResumePolling` 方法：系统重启后恢复轮询队列
-    - 添加超时检测（>24h 自动标记为 failed）
+    - 实现 `Submit` 方法（幂等策略）：
+      - 检查 entry.pikpak_task_id 是否已存在，若存在先查询 PikPak 确认任务是否活跃
+      - 活跃则直接加入轮询队列（使用 download_started_at 作为超时基准），不新建任务
+      - 创建远程任务（先创建远程，再通过 StateMachine 转为 downloading）
+      - StateMachine 转为 downloading 时自动写入 download_started_at（不预占位）
+      - 创建失败时通过 TransitionToFailed（code=service_unreachable）
+    - 实现 `StartPolling` goroutine：从 config.pikpak.poll_interval 读取间隔（解析失败记录 WARN 日志，使用默认 60s）
+    - 任务完成时记录 pikpak_file_id 和 pikpak_file_path（**仅存 PikPak 内部路径，不含 pikpak: 前缀**），状态转为 downloaded
+    - 任务失败时通过 TransitionToFailed（code=service_unreachable，retryable）
+    - 实现 `ResumePolling` 方法：使用 entry.download_started_at 作为超时基准（不使用 updated_at 或 time.Now()）
+    - 超时检测（>24h）：TransitionToFailed（code=pikpak_timeout，retryable）
+    - Stop() 使用 sync.Once 防止 double-close
     - _需求：4.1, 4.2, 4.3, 4.4_
 
   - [ ] 2.4 实现转存协调模块（internal/transfer/coordinator.go）
-    - 实现目标路径生成逻辑（电影：`/media/movies/{title} ({year})/`，剧集/动漫：`/media/tv|anime/{title}/Season {season:02d}/`）
-    - 实现 `Submit` 方法：生成并记录 target_path、调用 taro-transfer API、记录 transfer_task_id、状态转为 transferring
-    - 实现 HTTP 客户端调用 `POST /transfer`（携带 Authorization header）
+    - 实现目标路径生成逻辑（含路径规范化：统一 `/` 分隔符、末尾带 `/`、特殊字符替换为 `_`）
+    - 实现 `Submit` 方法（幂等策略）：
+      - 检查 transfer_task_id 是否已存在，若存在先调用 GET /transfer/{id}/status
+      - 返回 pending/running/done/failed → 按状态处理，不重新提交
+      - 返回 not_found → 继续创建新任务
+      - 调用 POST /transfer 创建任务；失败（服务不可达）→ 条目保持 downloaded，下次调度重试
+      - 通过 StateMachine 转为 transferring，同时记录 transfer_task_id（StateMachine 自动写入 transfer_started_at）
     - 实现 `StartPolling` goroutine：定时查询 `GET /transfer/{task_id}/status`
-    - 状态为 done 时转为 transferred，failed 时转为 failed 并记录原因
-    - 实现 `ResumePolling` 方法：系统重启后恢复轮询队列
+      - done → 转为 transferred
+      - failed → TransitionToFailed（code=transfer_timeout 或 service_unreachable，retryable）
+      - not_found → 视为 HF Space 重启，重新提交任务（更新 transfer_task_id，条目保持 transferring）
+    - 实现 `ResumePolling` 方法：使用 entry.transfer_started_at 作为超时基准
     - 处理 taro-transfer 服务不可达时的降级：条目保持 downloaded 状态，下次调度重试
     - _需求：5.6, 5.7, 5.8, 5.9_
 
-  - [ ] 2.5 实现智能重试核心逻辑（internal/state/retry.go）
-    - 实现 `SmartRetry` 方法：根据 failed_stage 决定重试起点
-    - 若 failed_stage='transferring' 且 pikpak_file_id 存在，调用 PikPak API 检查文件是否仍存在
-    - 文件存在 → 状态转为 downloaded，清除 transfer_task_id
-    - 文件不存在或其他失败阶段 → 状态转为 pending，清除所有中间状态字段
-    - 清除对应阶段之后的 resources 和 state_logs 历史记录
-    - 编写单元测试：验证各种失败阶段的重试逻辑
+  - [ ] 2.5 实现动作服务层（internal/service/action.go）
+    - 实现 `ActionService`：封装 RetryEntry、CancelEntry、SelectResource、AddEntry 四个核心动作
+    - RetryEntry：检查 failure_kind，permanent 类型直接返回错误（不执行重试）；retryable 类型根据 failed_stage 决定重试起点（智能重试）
+    - CancelEntry：通过 StateMachine 转为 cancelled（TransitionToFailed 中 code=user_cancelled）
+    - SelectResource：验证 resource 属于该 entry 且 eligible=1；通过 StateMachine 转为 found，记录 selected_resource_id，标记 resource.selected=1
+    - AddEntry：创建 manual 来源条目（source_id 使用 UUID）
+    - 所有动作通过 StateMachine 执行，不直接操作数据库状态字段
     - _需求：13.1, 13.6_
 
   - [ ] 2.6 实现 Jellyfin Webhook 处理模块（internal/webhook/jellyfin.go）
     - 定义 JellyfinItemAddedPayload 结构体（NotificationType、ItemType、Path）
     - 实现 `HandleJellyfin` HTTP handler：解析 POST 请求 body
     - 查询所有 status='transferred' 的条目
-    - 对每个条目检查 Path 是否以 target_path 为前缀
+    - 实现 `normalizePath` 函数：统一 `/` 分隔符、转小写、末尾加 `/`、去除连续 `//`
+    - 匹配逻辑：`strings.HasPrefix(normalizePath(webhookPath), normalizePath(entry.TargetPath))`（**必须 normalize 两侧，禁止原始字符串比较**）
     - 匹配成功时状态转为 in_library，触发平台回调
     - 无法匹配时记录日志，返回 200 OK（Jellyfin 不可达不影响系统）
     - _需求：6.1, 6.2, 6.3, 6.4_
@@ -156,13 +179,16 @@
 
   - [ ] 3.1 实现 taro-transfer 服务（taro-transfer/）
     - 创建 `main.go`：初始化 HTTP 服务器（监听 7860 端口）
-    - 创建 `task.go`：定义任务状态管理（sync.Map 存储 task_id -> status）
+    - 创建 `task.go`：定义任务状态管理（sync.Map 存储 task_id -> TaskState）
+      - TaskState 包含：status（pending/running/done/failed）、error_message、created_at
     - 创建 `handler.go`：
       - `POST /transfer`：验证 token、生成 task_id、异步执行 rclone copy、返回 task_id
-      - `GET /transfer/{task_id}/status`：返回任务状态（pending/running/done/failed）
-    - 实现 rclone 调用逻辑：`exec.Command("rclone", "copy", "pikpak:{source}", "onedrive:{target}")`
+      - `GET /transfer/{task_id}/status`：返回任务状态
+        - 任务存在：返回 `{"status": "pending|running|done|failed", "error": "..."}`
+        - 任务不存在：返回 `{"status": "not_found"}`（**明确信号，供主服务判断任务是否丢失**）
+    - 实现 rclone 调用逻辑：`rclone copy "pikpak:{source_path}" "onedrive:{target_path}"`（source_path 来自请求，不含 pikpak: 前缀，由 transfer 服务添加）
     - 转存成功后调用 rclone delete 删除 PikPak 源文件
-    - 失败时记录错误原因到任务状态
+    - 失败时记录错误原因到 TaskState.error_message
     - 创建 `Dockerfile`：安装 rclone、复制 rclone.conf、暴露 7860 端口
     - _需求：5.1, 5.2, 5.3, 5.4, 5.5, 5.10_
 
@@ -185,7 +211,9 @@
   - [ ] 4.2 实现主服务入口（cmd/taro/main.go）
     - [ ] 4.2.1 配置加载与日志初始化
       - 加载配置（支持 --config 参数）
-      - 验证必填配置项（Prowlarr URL、PikPak 账号、Telegram token 等）
+      - **按模块惰性校验**（不做一刀切必填）：
+        - 核心必填（缺失则启动失败）：server.port、server.db_path、prowlarr.url、prowlarr.api_key、pikpak.username、pikpak.password、transfer.url、transfer.token
+        - 模块可选（缺失则跳过该模块，记录 WARN）：bangumi.access_token、trakt.client_id、telegram.bot_token、onedrive.mount_path
       - 初始化 log/slog（根据 logging.level 和 logging.format 配置）
       - _需求：12.1, 12.2_
     
@@ -264,9 +292,9 @@
   - [ ] 6.1 实现 Telegram Bot 交互模块（internal/bot/bot.go）
     - 实现 `Start` 方法：启动 Bot 消息监听循环
     - 实现命令处理：`/list`、`/pending`、`/add`、`/retry`、`/cancel`
-    - 实现 callback query 处理：解析 `select:{entry_id}:{resource_index}`，更新 selected_resource_id，状态转为 found
-    - 实现取消按钮处理：状态转为 cancelled
-    - 所有操作通过状态机执行，确保事务一致性
+    - 所有写操作通过 ActionService 执行（不直接调用 StateMachine）
+    - 实现 callback query 处理：解析 `select:{entry_id}:{resource_id}`，调用 ActionService.SelectResource
+    - 实现取消按钮处理：调用 ActionService.CancelEntry
     - _需求：8.3, 8.4, 8.6, 11.4_
 
   - [ ] 6.2 实现 WebUI 模板和路由（internal/web/）
@@ -285,12 +313,12 @@
         - GET /entries/{id}：详情页（显示状态历史、失败原因）
         - POST /entries：手动添加条目（source='manual', source_id=UUID）
       - [ ] `actions.go`：
-        - POST /entries/{id}/retry：调用 SmartRetry
-        - POST /entries/{id}/cancel：状态转为 cancelled
-        - POST /entries/{id}/select：更新 selected_resource_id，状态转为 found
+        - POST /entries/{id}/retry：调用 ActionService.RetryEntry
+        - POST /entries/{id}/cancel：调用 ActionService.CancelEntry
+        - POST /entries/{id}/select：调用 ActionService.SelectResource
       - [ ] `pending.go`：GET /pending（待选择队列）
       - [ ] `status.go`：GET /status（系统状态、OneDrive 挂载状态、最近日志）
-      - 所有写操作通过状态机执行，确保事务一致性
+      - 所有写操作通过 ActionService 执行（不直接调用 StateMachine）
       - _需求：9.2, 9.3, 9.4, 9.5, 9.6_
 
     - [ ] 6.2.3 实现 HTTP 服务器（server.go）
@@ -314,10 +342,11 @@
     - 添加 --config 参数支持（读取 server.port 用于 API 调用）
     - _需求：10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
 
-  - [ ] 6.4 集成智能重试到三端交互界面
-    - WebUI：条目详情页"重试"按钮调用 SmartRetry
-    - CLI：`taroctl retry` 命令调用 SmartRetry
-    - TG Bot：失败通知的"重试"按钮调用 SmartRetry
+  - [ ] 6.4 集成动作服务层到三端交互界面
+    - WebUI：条目详情页"重试"/"取消"/"选择资源"按钮均调用 ActionService
+    - CLI：`taroctl retry/cancel/select` 命令均通过 HTTP API 调用 ActionService
+    - TG Bot：失败通知的"重试"按钮、资源选择按钮均调用 ActionService
+    - 确保三端行为完全一致（同一套业务逻辑）
     - _需求：13.2, 13.3, 13.4, 13.5_
 
 - [ ] 7. 部署配置与文档
@@ -362,11 +391,20 @@
 6. Bangumi 条目标题优先使用日文原名（name 字段）而非中文译名（name_cn）
 7. 分辨率优先级：1080p > 1080i > 720p > 480p > other
 8. manual 来源的 source_id 使用 UUID
-9. Token 刷新需要互斥锁保护配置文件写入
+9. Token 刷新需要互斥锁保护配置文件写入；写回失败只告警不阻断主流程
 10. 调度器需要信号量限制并发数，避免对外部 API 造成压力
 11. PikPak 登录态过期需要自动重新登录
-12. Prowlarr/Jellyfin 不可达时需要降级处理，不影响系统运行
+12. Prowlarr 不可达时条目保持 pending（retryable）；无结果时转为 failed（permanent）——这是关键设计点，不得随意修改
 13. 数据库迁移使用简单的 CREATE TABLE IF NOT EXISTS 策略（v1 版本）
 14. Bangumi uid 若配置中未提供，启动时通过 GET /v0/me 自动获取
-15. 使用 log/slog 作为日志库（Go 1.21+ 标准库），日志轮转交给 Docker 管理
+15. 使用 log/slog 作为日志库（Go 1.21+ 标准库），日志轮转交给 Docker 管理；禁止使用 fmt.Printf 输出错误
 16. 实现 GET /health 端点供 Docker healthcheck 使用
+17. **职责边界**：只有 StateMachine 能改状态；WebUI/Bot/CLI 只能通过 ActionService 触发用户动作；系统自动流转由调度器直接调用业务模块
+18. **失败分类**：所有 failed 转换必须通过 TransitionToFailed 指定 FailureCode；failure_kind 由 FailureKindOf(code) 自动推导，不得手动指定
+19. **外部任务幂等**：PikPak 和 transfer 提交前必须检查是否已有活跃任务，避免重复创建
+20. **阶段时间字段**：由 StateMachine 在状态转换时自动写入，业务模块禁止预占位；超时判断必须使用 download_started_at/transfer_started_at
+21. **pikpak_file_path 语义**：只存 PikPak 内部路径，不含 `pikpak:` 前缀；transfer 服务负责添加 remote 前缀
+22. **路径规范化**：target_path 统一使用 `/` 分隔符、末尾带 `/`、特殊字符替换为 `_`；Jellyfin 匹配必须 normalize 两侧路径后再做 prefix match
+23. **resources 表语义**：存储所有搜索结果（含被过滤项）；eligible=1 为可选资源，eligible=0 为被过滤资源；自动选择和 UI 展示只使用 eligible=1 的资源
+24. **配置惰性校验**：Telegram、Bangumi、Trakt、OneDrive 配置缺失时跳过对应模块，不阻止启动
+25. **taro-transfer not_found 语义**：GET /transfer/{id}/status 返回 not_found 时，主服务视为任务丢失，重新提交

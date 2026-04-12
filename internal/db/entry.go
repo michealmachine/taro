@@ -22,14 +22,21 @@ type Entry struct {
 	AskMode            int            `db:"ask_mode"` // 0=全局配置 1=强制询问 2=强制自动
 	Resolution         sql.NullString `db:"resolution"`
 	SelectedResourceID sql.NullString `db:"selected_resource_id"`
+	// 阶段开始时间（用于超时判断和恢复逻辑）
+	SearchStartedAt    sql.NullTime   `db:"search_started_at"`
+	DownloadStartedAt  sql.NullTime   `db:"download_started_at"`
+	TransferStartedAt  sql.NullTime   `db:"transfer_started_at"`
 	PikPakTaskID       sql.NullString `db:"pikpak_task_id"`
 	PikPakFileID       sql.NullString `db:"pikpak_file_id"`
 	PikPakFilePath     sql.NullString `db:"pikpak_file_path"`
 	PikPakCleaned      bool           `db:"pikpak_cleaned"`
 	TransferTaskID     sql.NullString `db:"transfer_task_id"`
 	TargetPath         sql.NullString `db:"target_path"`
+	// 失败信息（结构化）
 	FailedStage        sql.NullString `db:"failed_stage"`
 	FailedReason       sql.NullString `db:"failed_reason"`
+	FailureKind        sql.NullString `db:"failure_kind"` // 'retryable' | 'permanent'
+	FailureCode        sql.NullString `db:"failure_code"` // 结构化失败代码
 	FailedAt           sql.NullTime   `db:"failed_at"`
 	CreatedAt          time.Time      `db:"created_at"`
 	UpdatedAt          time.Time      `db:"updated_at"`
@@ -45,14 +52,16 @@ func (db *DB) CreateEntry(ctx context.Context, entry *Entry) error {
 
 	query := `
 		INSERT INTO entries (
-			id, title, media_type, source, source_id, season, status, ask_mode, resolution,
-			selected_resource_id, pikpak_task_id, pikpak_file_id, pikpak_file_path, pikpak_cleaned,
-			transfer_task_id, target_path, failed_stage, failed_reason, failed_at,
+			id, title, year, media_type, source, source_id, season, status, ask_mode, resolution,
+			selected_resource_id, search_started_at, download_started_at, transfer_started_at,
+			pikpak_task_id, pikpak_file_id, pikpak_file_path, pikpak_cleaned,
+			transfer_task_id, target_path, failed_stage, failed_reason, failure_kind, failure_code, failed_at,
 			created_at, updated_at
 		) VALUES (
-			:id, :title, :media_type, :source, :source_id, :season, :status, :ask_mode, :resolution,
-			:selected_resource_id, :pikpak_task_id, :pikpak_file_id, :pikpak_file_path, :pikpak_cleaned,
-			:transfer_task_id, :target_path, :failed_stage, :failed_reason, :failed_at,
+			:id, :title, :year, :media_type, :source, :source_id, :season, :status, :ask_mode, :resolution,
+			:selected_resource_id, :search_started_at, :download_started_at, :transfer_started_at,
+			:pikpak_task_id, :pikpak_file_id, :pikpak_file_path, :pikpak_cleaned,
+			:transfer_task_id, :target_path, :failed_stage, :failed_reason, :failure_kind, :failure_code, :failed_at,
 			:created_at, :updated_at
 		)
 	`
@@ -88,6 +97,7 @@ func (db *DB) UpdateEntry(ctx context.Context, entry *Entry) error {
 	query := `
 		UPDATE entries SET
 			title = :title,
+			year = :year,
 			media_type = :media_type,
 			source = :source,
 			source_id = :source_id,
@@ -96,6 +106,9 @@ func (db *DB) UpdateEntry(ctx context.Context, entry *Entry) error {
 			ask_mode = :ask_mode,
 			resolution = :resolution,
 			selected_resource_id = :selected_resource_id,
+			search_started_at = :search_started_at,
+			download_started_at = :download_started_at,
+			transfer_started_at = :transfer_started_at,
 			pikpak_task_id = :pikpak_task_id,
 			pikpak_file_id = :pikpak_file_id,
 			pikpak_file_path = :pikpak_file_path,
@@ -104,6 +117,8 @@ func (db *DB) UpdateEntry(ctx context.Context, entry *Entry) error {
 			target_path = :target_path,
 			failed_stage = :failed_stage,
 			failed_reason = :failed_reason,
+			failure_kind = :failure_kind,
+			failure_code = :failure_code,
 			failed_at = :failed_at,
 			updated_at = :updated_at
 		WHERE id = :id
