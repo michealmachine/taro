@@ -193,7 +193,7 @@
 
 - [ ] 4. 调度器与主服务集成
 
-  - [ ] 4.1 实现调度器模块（internal/scheduler/scheduler.go）
+  - [x] 4.1 实现调度器模块（internal/scheduler/scheduler.go）
     - 使用 robfig/cron 初始化调度器
     - 注册定时任务：
       - 每分钟：处理 pending 条目（触发搜索）
