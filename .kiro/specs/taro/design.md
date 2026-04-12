@@ -1000,3 +1000,216 @@ P4 Jellyfin 匹配精确性：Webhook_Handler 只匹配 status='transferred' 的
 P5 PikPak 清理幂等性：对同一条目多次执行垃圾回收，pikpak_cleaned 最终为 1，不会重复调用 PikPak 删除 API。
 
 P6 重启恢复完整性：系统重启后，所有 downloading 和 transferring 状态的条目必须恢复轮询，不丢失任何进行中的任务。
+
+
+---
+
+## 11. 关键设计决策文档
+
+### 11.1 阶段时间字段的 Fallback 策略
+
+**决策：不支持 fallback，旧数据将被跳过**
+
+**背景：**
+- `download_started_at` 和 `transfer_started_at` 字段用于超时判断的基准时间
+- 旧版本数据可能缺失这些字段
+
+**决策内容：**
+- `RecoverOnStartup` 在恢复 downloading/transferring 状态条目时，若发现缺失对应的阶段时间字段，将跳过该条目并记录 ERROR 日志
+- 不使用 `updated_at` 作为 fallback，因为这会导致超时基准不准确
+- 缺失阶段时间字段的条目需要人工介入（通过 retry 重新开始流程）
+
+**理由：**
+1. 超时判断的准确性优先于向后兼容性
+2. 使用 `updated_at` 作为 fallback 会导致超时基准漂移（每次状态更新都会重置基准）
+3. 旧数据量有限，人工介入成本可接受
+
+**影响范围：**
+- `internal/state/machine.go` 的 `RecoverOnStartup` 方法
+- `internal/downloader/pikpak.go` 的 `ResumePolling` 方法
+- `internal/transfer/coordinator.go` 的 `ResumePolling` 方法（未来实现）
+
+### 11.2 Submit() 状态一致性窗口处理
+
+**决策：通过恢复机制处理，不引入分布式事务**
+
+**背景：**
+- PikPak/Transfer 的 Submit() 流程中，远程任务创建成功后，本地状态转换可能失败
+- 这会导致短暂的状态不一致：远程任务存在，但本地状态未更新
+
+**决策内容：**
+- 不引入分布式事务或补偿事务框架
+- 依赖现有的恢复机制处理：
+  1. 若状态转换失败，条目保持原状态（found/downloaded）
+  2. 下次调度时会重新调用 Submit()
+  3. Submit() 的幂等检查会发现 task_id 为空，重新创建任务
+  4. PikPak 侧可能存在重复任务，但不影响正确性（最终只有一个任务会完成）
+
+**理由：**
+1. 分布式事务复杂度高，不适合单体应用
+2. 状态转换失败是极低概率事件（数据库写入失败）
+3. 重复任务的副作用可接受（PikPak 空间占用，可通过 GC 清理）
+4. 系统最终一致性优先于强一致性
+
+**影响范围：**
+- `internal/downloader/pikpak.go` 的 `Submit` 方法（已添加注释说明）
+- `internal/transfer/coordinator.go` 的 `Submit` 方法（未来实现）
+
+### 11.3 异常处理中的状态回滚策略
+
+**决策：允许状态回滚到 pending，但仅限特定场景**
+
+**背景：**
+- 某些异常情况下，条目已进入中间状态（如 searching），但操作未真正执行
+- 需要决策是转为 failed 还是回滚到 pending
+
+**决策内容：**
+- **允许回滚的场景**（转回 pending）：
+  1. Prowlarr 不可达/超时（网络异常，搜索未执行）
+  2. 资源保存失败（数据库异常，搜索结果未持久化）
+- **不允许回滚的场景**（转为 failed）：
+  1. 搜索成功但无结果（permanent failure）
+  2. 所有结果被编码过滤（permanent failure）
+  3. PikPak 提交失败（retryable failure，但已尝试过提交）
+  4. 下载/转存超时（retryable failure，但已执行过操作）
+
+**理由：**
+1. 回滚到 pending 的条件：操作未真正执行 + 异常可恢复
+2. 转为 failed 的条件：操作已执行 + 结果明确（无论成功失败）
+3. 审计日志会记录所有状态变更，包括回滚操作
+
+**影响范围：**
+- `internal/searcher/prowlarr.go` 的 `Search` 方法
+- `validTransitions` 中 `StatusSearching` 允许转换到 `StatusPending`
+
+### 11.4 Token 刷新失败的处理策略
+
+**决策：写回配置失败只告警，不阻断主流程**
+
+**背景：**
+- Bangumi/Trakt token 刷新后需要写回 `config.yaml`
+- 写回可能失败（文件权限、磁盘满、配置来自环境变量等）
+
+**决策内容：**
+- Token 刷新成功后，内存中的 token 立即更新
+- 尝试写回 `config.yaml`，失败时：
+  1. 记录 WARN 日志
+  2. 不返回错误，不阻断主流程
+  3. 当次请求继续使用内存中的新 token
+- 若配置来自环境变量（`TARO_*`），写回文件本身无意义
+
+**理由：**
+1. Token 已在内存中更新，当次请求可正常进行
+2. 下次重启时，若配置文件未更新，会重新触发 token 刷新（OAuth2 refresh_token 仍有效）
+3. 写回失败不应影响系统可用性
+
+**影响范围：**
+- `internal/poller/bangumi.go` 的 token 刷新逻辑
+- `internal/poller/trakt.go` 的 token 刷新逻辑
+- `internal/config/config.go` 的 `UpdateBangumiToken` 和 `UpdateTraktToken` 方法
+
+### 11.5 资源表的存储策略
+
+**决策：存储所有搜索结果（含被过滤项），用 eligible 字段区分**
+
+**背景：**
+- 用户需要了解为什么某些资源被过滤（如 AV1 编码）
+- 只写日志不够持久，重启后信息丢失
+
+**决策内容：**
+- `resources` 表存储所有搜索结果，包括被编码过滤的资源
+- 使用 `eligible` 字段区分：
+  - `eligible=1`：可选资源，参与自动选择和 UI 展示
+  - `eligible=0`：被过滤资源，不参与自动选择，但保留记录
+- 被过滤资源的 `rejected_reason` 字段记录过滤原因（如 `"codec_excluded:av1"`）
+- 自动选择和 UI 展示只使用 `eligible=1` 的资源
+
+**理由：**
+1. 用户可通过 WebUI 查看所有搜索结果，了解过滤原因
+2. 便于调试和优化搜索策略（如调整编码过滤规则）
+3. 存储成本低（每个条目通常只有几十个资源）
+
+**影响范围：**
+- `internal/db/schema.sql` 的 `resources` 表定义
+- `internal/searcher/prowlarr.go` 的 `Search` 方法
+- `internal/searcher/prowlarr.go` 的 `selectBestResource` 方法（只选择 eligible=1 的资源）
+
+### 11.6 pikpak_file_path 字段语义
+
+**决策：只存储 PikPak 内部路径，不含 `pikpak:` 前缀**
+
+**背景：**
+- rclone 使用 `pikpak:/path/to/file` 格式访问 PikPak 文件
+- 需要明确 `pikpak_file_path` 字段存储的是完整路径还是裸路径
+
+**决策内容：**
+- `pikpak_file_path` 只存储 PikPak 内部路径，不含 `pikpak:` 前缀
+- 示例：`/downloads/进撃の巨人/episode01.mkv`
+- transfer 服务使用时拼接为：`rclone copy "pikpak:/downloads/进撃の巨人/episode01.mkv" "onedrive:{target}"`
+- 即：transfer 服务负责添加 remote 前缀，字段本身只存路径部分
+
+**理由：**
+1. 路径本身是平台无关的，不应包含 rclone remote 前缀
+2. 便于未来切换到其他转存方案（不依赖 rclone）
+3. 数据库字段语义更清晰（存储的是文件路径，而非 rclone 特定格式）
+
+**当前状态：**
+- `internal/downloader/pikpak.go` 中使用 `taskInfo.FileName` 作为占位符
+- 已添加 TODO 注释，需要验证 pikpak-go SDK 是否提供完整路径字段
+- 若 `FileName` 只是文件名，需要查询文件详情获取完整路径
+
+**影响范围：**
+- `internal/downloader/pikpak.go` 的 `handleTaskCompleted` 方法
+- `internal/transfer/coordinator.go` 的 `Submit` 方法（未来实现）
+
+### 11.7 Prowlarr 不可达时的降级策略
+
+**决策：条目保持 pending 状态，不转为 failed**
+
+**背景：**
+- Prowlarr 不可达可能是临时网络问题或服务重启
+- 需要决策是转为 failed（需要人工重试）还是保持 pending（自动重试）
+
+**决策内容：**
+- Prowlarr 不可达/超时/HTTP 错误时：
+  1. 条目从 searching 转回 pending
+  2. 记录 WARN 日志
+  3. 下次调度时自动重试
+- 搜索成功但无结果时：
+  1. 条目转为 failed（permanent）
+  2. 需要人工介入（可能是标题错误或资源确实不存在）
+
+**理由：**
+1. Prowlarr 不可达是临时性问题，自动重试成功率高
+2. 减少人工介入次数，提高系统自动化程度
+3. 审计日志会记录 searching -> pending 的转换，便于排查问题
+
+**影响范围：**
+- `internal/searcher/prowlarr.go` 的 `Search` 方法
+- `validTransitions` 中 `StatusSearching` 允许转换到 `StatusPending`
+
+### 11.8 资源保存失败的处理策略
+
+**决策：转回 pending 而非 failed，保留搜索结果供重试**
+
+**背景：**
+- 资源保存失败通常是数据库临时异常（锁冲突、磁盘满等）
+- 搜索结果已获取，但未持久化
+
+**决策内容：**
+- 资源保存失败时（无论是 eligibleCount==0 分支还是正常流程）：
+  1. 条目从 searching 转回 pending
+  2. 记录 ERROR 日志
+  3. 下次调度时重新搜索（Prowlarr 结果可能有缓存）
+- 不转为 failed，因为：
+  1. 搜索本身是成功的（Prowlarr 返回了结果）
+  2. 失败原因是数据库异常，而非业务逻辑问题
+
+**理由：**
+1. 数据库异常通常是临时性的，重试成功率高
+2. 转为 failed 会丢失"搜索成功"的信息，需要人工判断是否重试
+3. 保持 pending 状态，调度器会自动重试，符合 task 要求的"保存所有搜索结果"
+
+**影响范围：**
+- `internal/searcher/prowlarr.go` 的 `Search` 方法（lines 176-194）
+
