@@ -145,6 +145,10 @@ go build -o taroctl ./cmd/taroctl
 
 ### CLI 工具
 
+> **注意**：CLI 工具功能尚在开发中（Task 6.3）。当前版本仅显示版本信息。
+
+计划支持的命令：
+
 ```bash
 # 列出所有条目
 taroctl list

@@ -5,11 +5,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 )
 
 func TestCreateTransfer(t *testing.T) {
+	// Set required environment variable for testing
+	os.Setenv("TARO_TRANSFER_TOKEN", "test-token")
+	defer os.Unsetenv("TARO_TRANSFER_TOKEN")
+
 	taskManager := NewTaskManager()
 	handler := NewHandler(taskManager)
 
@@ -20,6 +25,7 @@ func TestCreateTransfer(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqBody)
 	req := httptest.NewRequest("POST", "/transfer", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 
 	// Execute
@@ -52,7 +58,33 @@ func TestCreateTransfer(t *testing.T) {
 	}
 }
 
+func TestCreateTransferUnauthorized(t *testing.T) {
+	os.Setenv("TARO_TRANSFER_TOKEN", "test-token")
+	defer os.Unsetenv("TARO_TRANSFER_TOKEN")
+
+	taskManager := NewTaskManager()
+	handler := NewHandler(taskManager)
+
+	reqBody := CreateTransferRequest{
+		SourcePath: "/downloads/test.mkv",
+		TargetPath: "/media/test/",
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/transfer", bytes.NewReader(body))
+	// No Authorization header
+	w := httptest.NewRecorder()
+
+	handler.CreateTransfer(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401, got %d", w.Code)
+	}
+}
+
 func TestCreateTransferMissingFields(t *testing.T) {
+	os.Setenv("TARO_TRANSFER_TOKEN", "test-token")
+	defer os.Unsetenv("TARO_TRANSFER_TOKEN")
+
 	taskManager := NewTaskManager()
 	handler := NewHandler(taskManager)
 
@@ -82,6 +114,7 @@ func TestCreateTransferMissingFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			body, _ := json.Marshal(tt.body)
 			req := httptest.NewRequest("POST", "/transfer", bytes.NewReader(body))
+			req.Header.Set("Authorization", "Bearer test-token")
 			w := httptest.NewRecorder()
 
 			handler.CreateTransfer(w, req)
@@ -94,6 +127,9 @@ func TestCreateTransferMissingFields(t *testing.T) {
 }
 
 func TestGetTransferStatus(t *testing.T) {
+	os.Setenv("TARO_TRANSFER_TOKEN", "test-token")
+	defer os.Unsetenv("TARO_TRANSFER_TOKEN")
+
 	taskManager := NewTaskManager()
 	handler := NewHandler(taskManager)
 
@@ -104,6 +140,7 @@ func TestGetTransferStatus(t *testing.T) {
 	// Create request with path parameter
 	req := httptest.NewRequest("GET", "/transfer/"+taskID+"/status", nil)
 	req.SetPathValue("id", taskID)
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 
 	// Execute
@@ -124,13 +161,39 @@ func TestGetTransferStatus(t *testing.T) {
 	}
 }
 
+func TestGetTransferStatusUnauthorized(t *testing.T) {
+	os.Setenv("TARO_TRANSFER_TOKEN", "test-token")
+	defer os.Unsetenv("TARO_TRANSFER_TOKEN")
+
+	taskManager := NewTaskManager()
+	handler := NewHandler(taskManager)
+
+	taskID := "test-task-id"
+	taskManager.CreateTask(taskID)
+
+	req := httptest.NewRequest("GET", "/transfer/"+taskID+"/status", nil)
+	req.SetPathValue("id", taskID)
+	// No Authorization header
+	w := httptest.NewRecorder()
+
+	handler.GetTransferStatus(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401, got %d", w.Code)
+	}
+}
+
 func TestGetTransferStatusNotFound(t *testing.T) {
+	os.Setenv("TARO_TRANSFER_TOKEN", "test-token")
+	defer os.Unsetenv("TARO_TRANSFER_TOKEN")
+
 	taskManager := NewTaskManager()
 	handler := NewHandler(taskManager)
 
 	// Request non-existent task
 	req := httptest.NewRequest("GET", "/transfer/non-existent/status", nil)
 	req.SetPathValue("id", "non-existent")
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 
 	// Execute
@@ -152,6 +215,9 @@ func TestGetTransferStatusNotFound(t *testing.T) {
 }
 
 func TestHealth(t *testing.T) {
+	os.Setenv("TARO_TRANSFER_TOKEN", "test-token")
+	defer os.Unsetenv("TARO_TRANSFER_TOKEN")
+
 	taskManager := NewTaskManager()
 	handler := NewHandler(taskManager)
 
@@ -211,5 +277,41 @@ func TestTaskManager(t *testing.T) {
 	nonExistent := tm.GetTask("non-existent")
 	if nonExistent != nil {
 		t.Error("expected nil for non-existent task")
+	}
+}
+
+// TestTaskStateConcurrency tests concurrent access to TaskState
+func TestTaskStateConcurrency(t *testing.T) {
+	tm := NewTaskManager()
+	taskID := "concurrent-test"
+	tm.CreateTask(taskID)
+
+	// Simulate concurrent reads and writes
+	done := make(chan bool)
+	
+	// Writer goroutine
+	go func() {
+		for i := 0; i < 100; i++ {
+			tm.UpdateTaskStatus(taskID, TaskStatusRunning, "updating")
+		}
+		done <- true
+	}()
+
+	// Reader goroutines
+	for i := 0; i < 10; i++ {
+		go func() {
+			for j := 0; j < 100; j++ {
+				state := tm.GetTask(taskID)
+				if state == nil {
+					t.Error("task should exist")
+				}
+			}
+			done <- true
+		}()
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < 11; i++ {
+		<-done
 	}
 }

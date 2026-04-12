@@ -90,6 +90,13 @@ func (h *Handler) CreateTransfer(w http.ResponseWriter, r *http.Request) {
 
 // GetTransferStatus handles GET /transfer/{id}/status
 func (h *Handler) GetTransferStatus(w http.ResponseWriter, r *http.Request) {
+	// Verify authentication (required for consistency with create endpoint)
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "Bearer "+h.authToken {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Extract task ID from path
 	taskID := r.PathValue("id")
 	if taskID == "" {
