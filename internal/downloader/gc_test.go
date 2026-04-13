@@ -33,11 +33,9 @@ func TestGarbageCollector_CleanPikPakFiles(t *testing.T) {
 		},
 	}
 
-	// Create state machine
-	sm := state.NewStateMachine(database, logger)
-
-	// Create downloader (will fail to connect to PikPak, but that's ok for this test)
-	downloader, _ := NewPikPakDownloader(cfg, database, sm, logger)
+	// Use nil downloader to simulate deletion unavailable path.
+	// With current logic, entries should NOT be marked cleaned unless deletion succeeds.
+	var downloader *PikPakDownloader
 
 	// Create GC
 	gc := NewGarbageCollector(downloader, database, cfg, logger)
@@ -122,20 +120,20 @@ func TestGarbageCollector_CleanPikPakFiles(t *testing.T) {
 		t.Fatalf("failed to create test entry: %v", err)
 	}
 
-	// Run cleanup (will fail to connect to PikPak, but should still mark entries as cleaned)
+	// Run cleanup
 	if err := gc.cleanPikPakFiles(ctx); err != nil {
-		t.Logf("cleanPikPakFiles returned error (expected if PikPak unavailable): %v", err)
+		t.Logf("cleanPikPakFiles returned error: %v", err)
 	}
 
-	// Verify entry-1 and entry-2 are marked as cleaned
+	// Verify entry-1 and entry-2 are NOT marked as cleaned (deletion did not run)
 	entry1, _ := database.GetEntry(ctx, "entry-1")
-	if !entry1.PikPakCleaned {
-		t.Errorf("entry-1 should be marked as cleaned")
+	if entry1.PikPakCleaned {
+		t.Errorf("entry-1 should NOT be marked as cleaned without successful deletion")
 	}
 
 	entry2, _ := database.GetEntry(ctx, "entry-2")
-	if !entry2.PikPakCleaned {
-		t.Errorf("entry-2 should be marked as cleaned")
+	if entry2.PikPakCleaned {
+		t.Errorf("entry-2 should NOT be marked as cleaned without successful deletion")
 	}
 
 	// Verify entry-3 is NOT marked as cleaned (too recent)
@@ -144,7 +142,7 @@ func TestGarbageCollector_CleanPikPakFiles(t *testing.T) {
 		t.Errorf("entry-3 should NOT be marked as cleaned (too recent)")
 	}
 
-	// Verify entry-4 remains cleaned (idempotent)
+	// Verify entry-4 remains cleaned
 	entry4, _ := database.GetEntry(ctx, "entry-4")
 	if !entry4.PikPakCleaned {
 		t.Errorf("entry-4 should remain cleaned")
@@ -157,8 +155,8 @@ func TestGarbageCollector_CleanPikPakFiles(t *testing.T) {
 
 	// Verify entries remain in same state
 	entry1Again, _ := database.GetEntry(ctx, "entry-1")
-	if !entry1Again.PikPakCleaned {
-		t.Errorf("entry-1 should still be marked as cleaned after second run")
+	if entry1Again.PikPakCleaned {
+		t.Errorf("entry-1 should still NOT be marked as cleaned after second run")
 	}
 }
 

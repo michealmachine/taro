@@ -487,6 +487,46 @@ func TestStateMachine_ConcurrentTransitions(t *testing.T) {
 	}
 }
 
+func TestStateMachine_UpdateFields_TransferStartedAt(t *testing.T) {
+	database := setupTestDB(t)
+	defer database.Close()
+
+	sm := NewStateMachine(database, setupTestLogger())
+	ctx := context.Background()
+
+	entry := &db.Entry{
+		Source:    "manual",
+		SourceID:  "update-fields-transfer-started-at",
+		MediaType: "anime",
+		Title:     "Update Fields Test",
+		Season:    1,
+		Status:    string(StatusTransferring),
+	}
+	if err := database.CreateEntry(ctx, entry); err != nil {
+		t.Fatalf("failed to create entry: %v", err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := sm.UpdateFields(ctx, entry.ID, map[string]any{
+		"transfer_started_at": now,
+	}); err != nil {
+		t.Fatalf("UpdateFields() failed: %v", err)
+	}
+
+	updated, err := database.GetEntry(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("failed to get updated entry: %v", err)
+	}
+
+	if !updated.TransferStartedAt.Valid {
+		t.Fatalf("expected transfer_started_at to be set")
+	}
+	got := updated.TransferStartedAt.Time.UTC().Truncate(time.Second)
+	if !got.Equal(now) {
+		t.Fatalf("unexpected transfer_started_at, got %v want %v", got, now)
+	}
+}
+
 // TestFailureKindOf tests the FailureKindOf function
 func TestFailureKindOf(t *testing.T) {
 	tests := []struct {

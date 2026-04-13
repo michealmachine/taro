@@ -230,6 +230,17 @@ func (d *PikPakDownloader) ResumePolling(ctx context.Context) error {
 	return nil
 }
 
+// ResumeEntryPolling resumes polling for a single downloading entry.
+// Used by startup recovery callback to avoid repeated full-table scans.
+func (d *PikPakDownloader) ResumeEntryPolling(entryID, taskID string, downloadStartedAt time.Time) error {
+	if entryID == "" || taskID == "" {
+		return fmt.Errorf("entryID and taskID are required")
+	}
+	d.addToQueue(entryID, taskID, downloadStartedAt)
+	d.logger.Info("resumed polling for single entry", "entry_id", entryID, "task_id", taskID)
+	return nil
+}
+
 // pollingLoop polls PikPak for task status
 func (d *PikPakDownloader) pollingLoop(ctx context.Context) {
 	defer d.wg.Done()

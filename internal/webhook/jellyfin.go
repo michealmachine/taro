@@ -18,6 +18,7 @@ type JellyfinHandler struct {
 	database     *db.DB
 	stateMachine *state.StateMachine
 	logger       *slog.Logger
+	mountPath    string
 	// Platform updaters (will be set later)
 	onInLibrary func(ctx context.Context, entry *db.Entry) error
 }
@@ -38,6 +39,12 @@ func NewJellyfinHandler(
 // SetOnInLibraryCallback sets the callback for when an item is added to library
 func (h *JellyfinHandler) SetOnInLibraryCallback(callback func(ctx context.Context, entry *db.Entry) error) {
 	h.onInLibrary = callback
+}
+
+// SetMountPath sets the local OneDrive mount path for webhook path normalization.
+// Example: /mnt/onedrive
+func (h *JellyfinHandler) SetMountPath(mountPath string) {
+	h.mountPath = normalizePath(mountPath)
 }
 
 // JellyfinItemAddedPayload represents the webhook payload from Jellyfin
@@ -131,8 +138,10 @@ func (h *JellyfinHandler) processItemAdded(ctx context.Context, payload *Jellyfi
 		return nil
 	}
 
-	// Normalize webhook path
-	webhookPath := normalizePath(payload.Path)
+	// Normalize webhook path and derive candidates.
+	// Candidate 1: absolute local path from webhook
+	// Candidate 2: path relative to mount root (if mount path configured)
+	webhookPaths := h.normalizeWebhookPaths(payload.Path)
 
 	// Try to match with transferred entries
 	for _, entry := range transferredEntries {
@@ -142,12 +151,20 @@ func (h *JellyfinHandler) processItemAdded(ctx context.Context, payload *Jellyfi
 
 		entryTargetPath := normalizePath(entry.TargetPath.String)
 
+		matchedPath := ""
+		for _, webhookPath := range webhookPaths {
+			if strings.HasPrefix(webhookPath, entryTargetPath) {
+				matchedPath = webhookPath
+				break
+			}
+		}
+
 		// Match using prefix matching (normalized paths)
-		if strings.HasPrefix(webhookPath, entryTargetPath) {
+		if matchedPath != "" {
 			h.logger.Info("matched Jellyfin webhook to entry",
 				"entry_id", entry.ID,
 				"title", entry.Title,
-				"webhook_path", webhookPath,
+				"webhook_path", matchedPath,
 				"target_path", entryTargetPath)
 
 			// Transition to in_library
@@ -179,8 +196,26 @@ func (h *JellyfinHandler) processItemAdded(ctx context.Context, payload *Jellyfi
 		}
 	}
 
-	h.logger.Debug("no matching entry found for webhook path", "path", webhookPath)
+	h.logger.Debug("no matching entry found for webhook path", "path", payload.Path)
 	return nil
+}
+
+func (h *JellyfinHandler) normalizeWebhookPaths(rawPath string) []string {
+	absolute := normalizePath(rawPath)
+	paths := []string{absolute}
+
+	if h.mountPath == "" {
+		return paths
+	}
+
+	if strings.HasPrefix(absolute, h.mountPath) {
+		relative := strings.TrimPrefix(absolute, h.mountPath)
+		relative = strings.TrimPrefix(relative, "/")
+		relative = normalizePath("/" + relative)
+		paths = append(paths, relative)
+	}
+
+	return paths
 }
 
 // normalizePath normalizes a file path for comparison

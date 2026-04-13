@@ -234,6 +234,10 @@ func (sm *StateMachine) applyUpdates(entry *db.Entry, updates map[string]any) {
 			if v, ok := value.(string); ok {
 				entry.TransferTaskID = sql.NullString{String: v, Valid: v != ""}
 			}
+		case "transfer_started_at":
+			if v, ok := value.(time.Time); ok {
+				entry.TransferStartedAt = sql.NullTime{Time: v, Valid: true}
+			}
 		case "target_path":
 			if v, ok := value.(string); ok {
 				entry.TargetPath = sql.NullString{String: v, Valid: v != ""}

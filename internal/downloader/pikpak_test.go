@@ -160,5 +160,37 @@ func TestResumePolling(t *testing.T) {
 	downloader.queueMu.RUnlock()
 }
 
+func TestResumeEntryPolling(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := &config.Config{}
+	database := setupTestDB(t)
+	defer database.Close()
+	sm := state.NewStateMachine(database, logger)
+
+	downloader := &PikPakDownloader{
+		logger:       logger,
+		config:       cfg,
+		database:     database,
+		sm:           sm,
+		pollingQueue: make(map[string]*PollingTask),
+		stopChan:     make(chan struct{}),
+	}
+
+	now := time.Now()
+	if err := downloader.ResumeEntryPolling("entry-1", "task-1", now); err != nil {
+		t.Fatalf("ResumeEntryPolling() error = %v", err)
+	}
+
+	downloader.queueMu.RLock()
+	defer downloader.queueMu.RUnlock()
+
+	if len(downloader.pollingQueue) != 1 {
+		t.Fatalf("expected 1 task in queue, got %d", len(downloader.pollingQueue))
+	}
+	if downloader.pollingQueue["entry-1"].TaskID != "task-1" {
+		t.Fatalf("expected task_id task-1, got %s", downloader.pollingQueue["entry-1"].TaskID)
+	}
+}
+
 // Note: Integration tests with actual PikPak API would require valid credentials
 // and should be run separately with environment variables

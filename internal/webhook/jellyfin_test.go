@@ -1,7 +1,14 @@
 package webhook
 
 import (
+	"context"
+	"database/sql"
+	"log/slog"
+	"os"
 	"testing"
+
+	"github.com/michealmachine/taro/internal/db"
+	"github.com/michealmachine/taro/internal/state"
 )
 
 func TestNormalizePath(t *testing.T) {
@@ -118,5 +125,51 @@ func TestPathMatching(t *testing.T) {
 					matched, tt.shouldMatch)
 			}
 		})
+	}
+}
+
+func TestProcessItemAdded_MountPathMapping(t *testing.T) {
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer database.Close()
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	sm := state.NewStateMachine(database, logger)
+	h := NewJellyfinHandler(database, sm, logger)
+	h.SetMountPath("/mnt/onedrive")
+
+	entry := &db.Entry{
+		ID:         "entry-1",
+		Title:      "Attack on Titan",
+		MediaType:  "anime",
+		Source:     "manual",
+		SourceID:   "manual-1",
+		Season:     1,
+		Status:     string(state.StatusTransferred),
+		TargetPath: sql.NullString{String: "/media/anime/attack on titan/season 01/", Valid: true},
+	}
+	if err := database.CreateEntry(context.Background(), entry); err != nil {
+		t.Fatalf("failed to create entry: %v", err)
+	}
+
+	payload := &JellyfinItemAddedPayload{
+		NotificationType: "ItemAdded",
+		ItemType:         "Episode",
+		Path:             "/mnt/onedrive/media/anime/Attack On Titan/Season 01/episode01.mkv",
+	}
+
+	if err := h.processItemAdded(context.Background(), payload); err != nil {
+		t.Fatalf("processItemAdded() failed: %v", err)
+	}
+
+	updated, err := database.GetEntry(context.Background(), entry.ID)
+	if err != nil {
+		t.Fatalf("failed to fetch updated entry: %v", err)
+	}
+
+	if updated.Status != string(state.StatusInLibrary) {
+		t.Fatalf("expected status %s, got %s", state.StatusInLibrary, updated.Status)
 	}
 }

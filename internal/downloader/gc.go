@@ -168,7 +168,7 @@ func (gc *GarbageCollector) cleanPikPakFiles(ctx context.Context) error {
 	gc.logger.Info("deleting files from pikpak", "count", len(fileIDs))
 
 	// Delete files one by one (pikpaktui rm supports single file ID)
-	// We mark entries as cleaned regardless of deletion success (idempotent)
+	deleteSuccess := make(map[string]bool)
 	for _, fileID := range fileIDs {
 		if gc.downloader != nil {
 			ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -176,6 +176,7 @@ func (gc *GarbageCollector) cleanPikPakFiles(ctx context.Context) error {
 				gc.logger.Warn("failed to delete file from pikpak", "file_id", fileID, "error", err)
 			} else {
 				gc.logger.Info("deleted file from pikpak", "file_id", fileID)
+				deleteSuccess[fileID] = true
 			}
 			cancel()
 		} else {
@@ -183,14 +184,18 @@ func (gc *GarbageCollector) cleanPikPakFiles(ctx context.Context) error {
 		}
 	}
 
-	// Mark entries as cleaned (idempotent - safe to mark even if deletion failed)
+	// Mark entries as cleaned only when deletion succeeds
 	for _, entry := range entries {
+		fileID := entryIDToFileID[entry.ID]
+		if !deleteSuccess[fileID] {
+			continue
+		}
 		entry.PikPakCleaned = true
 		if err := gc.database.UpdateEntry(ctx, entry); err != nil {
 			gc.logger.Error("failed to mark entry as cleaned", "entry_id", entry.ID, "error", err)
 			// Continue with other entries
 		} else {
-			gc.logger.Info("marked entry as cleaned", "entry_id", entry.ID, "file_id", entryIDToFileID[entry.ID])
+			gc.logger.Info("marked entry as cleaned", "entry_id", entry.ID, "file_id", fileID)
 		}
 	}
 
