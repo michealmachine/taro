@@ -17,6 +17,7 @@ type GarbageCollector struct {
 	database   *db.DB
 	config     *config.Config
 	logger     *slog.Logger
+	deleteFile func(ctx context.Context, fileID string) error
 
 	stopChan chan struct{}
 	stopOnce sync.Once
@@ -25,11 +26,17 @@ type GarbageCollector struct {
 
 // NewGarbageCollector creates a new garbage collector
 func NewGarbageCollector(downloader *PikPakDownloader, database *db.DB, cfg *config.Config, logger *slog.Logger) *GarbageCollector {
+	var deleteFn func(ctx context.Context, fileID string) error
+	if downloader != nil {
+		deleteFn = downloader.deleteFile
+	}
+
 	return &GarbageCollector{
 		downloader: downloader,
 		database:   database,
 		config:     cfg,
 		logger:     logger,
+		deleteFile: deleteFn,
 		stopChan:   make(chan struct{}),
 	}
 }
@@ -170,9 +177,9 @@ func (gc *GarbageCollector) cleanPikPakFiles(ctx context.Context) error {
 	// Delete files one by one (pikpaktui rm supports single file ID)
 	deleteSuccess := make(map[string]bool)
 	for _, fileID := range fileIDs {
-		if gc.downloader != nil {
+		if gc.deleteFile != nil {
 			ctx2, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if err := gc.downloader.deleteFile(ctx2, fileID); err != nil {
+			if err := gc.deleteFile(ctx2, fileID); err != nil {
 				gc.logger.Warn("failed to delete file from pikpak", "file_id", fileID, "error", err)
 			} else {
 				gc.logger.Info("deleted file from pikpak", "file_id", fileID)

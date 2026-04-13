@@ -3,6 +3,7 @@ package downloader
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -452,5 +453,92 @@ func TestGarbageCollector_CleanStateLogs_KeepForever(t *testing.T) {
 
 	if len(logs) != 1 {
 		t.Errorf("expected 1 state log (keep forever), got %d", len(logs))
+	}
+}
+
+func TestGarbageCollector_CleanPikPakFiles_DeleteOutcomeControlsCleanedFlag(t *testing.T) {
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create test database: %v", err)
+	}
+	defer database.Close()
+
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := &config.Config{
+		PikPak: config.PikPakConfig{
+			GCRetentionDays: 7,
+		},
+	}
+
+	entries := []*db.Entry{
+		{
+			ID:            "entry-success",
+			Title:         "Cleanup Success",
+			MediaType:     "anime",
+			Source:        "manual",
+			SourceID:      "cleanup-success",
+			Season:        1,
+			Status:        string(state.StatusFailed),
+			PikPakFileID:  sql.NullString{String: "file-success", Valid: true},
+			PikPakCleaned: false,
+			FailedAt:      sql.NullTime{Time: time.Now().Add(-10 * 24 * time.Hour), Valid: true},
+		},
+		{
+			ID:            "entry-fail",
+			Title:         "Cleanup Fail",
+			MediaType:     "anime",
+			Source:        "manual",
+			SourceID:      "cleanup-fail",
+			Season:        1,
+			Status:        string(state.StatusFailed),
+			PikPakFileID:  sql.NullString{String: "file-fail", Valid: true},
+			PikPakCleaned: false,
+			FailedAt:      sql.NullTime{Time: time.Now().Add(-10 * 24 * time.Hour), Valid: true},
+		},
+	}
+	for _, entry := range entries {
+		if err := database.CreateEntry(ctx, entry); err != nil {
+			t.Fatalf("failed to create entry %s: %v", entry.ID, err)
+		}
+	}
+
+	gc := NewGarbageCollector(nil, database, cfg, logger)
+	gc.deleteFile = func(ctx context.Context, fileID string) error {
+		if fileID == "file-fail" {
+			return fmt.Errorf("simulated delete failure")
+		}
+		return nil
+	}
+
+	if err := gc.cleanPikPakFiles(ctx); err != nil {
+		t.Fatalf("cleanPikPakFiles() failed: %v", err)
+	}
+
+	successEntry, err := database.GetEntry(ctx, "entry-success")
+	if err != nil {
+		t.Fatalf("failed to fetch success entry: %v", err)
+	}
+	if !successEntry.PikPakCleaned {
+		t.Fatalf("expected successful deletion to mark entry as cleaned")
+	}
+
+	failEntry, err := database.GetEntry(ctx, "entry-fail")
+	if err != nil {
+		t.Fatalf("failed to fetch fail entry: %v", err)
+	}
+	if failEntry.PikPakCleaned {
+		t.Fatalf("expected failed deletion to keep entry not cleaned")
+	}
+
+	// Idempotency: run again, statuses should remain stable.
+	if err := gc.cleanPikPakFiles(ctx); err != nil {
+		t.Fatalf("second cleanPikPakFiles() failed: %v", err)
+	}
+
+	successEntry2, _ := database.GetEntry(ctx, "entry-success")
+	failEntry2, _ := database.GetEntry(ctx, "entry-fail")
+	if !successEntry2.PikPakCleaned || failEntry2.PikPakCleaned {
+		t.Fatalf("unexpected state after second run: success=%v fail=%v", successEntry2.PikPakCleaned, failEntry2.PikPakCleaned)
 	}
 }

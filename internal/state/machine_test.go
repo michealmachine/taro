@@ -431,6 +431,65 @@ func TestStateMachine_RecoverOnStartup(t *testing.T) {
 	}
 }
 
+func TestStateMachine_RecoverOnStartup_MissingPhaseTimesSkipped(t *testing.T) {
+	database := setupTestDB(t)
+	defer database.Close()
+
+	sm := NewStateMachine(database, setupTestLogger())
+	ctx := context.Background()
+
+	entryDownloadingMissing := &db.Entry{
+		Source:       "test",
+		SourceID:     "download-missing-time",
+		MediaType:    "movie",
+		Title:        "Download Missing Time",
+		Season:       0,
+		Status:       string(StatusDownloading),
+		PikPakTaskID: sql.NullString{String: "task-download-missing", Valid: true},
+	}
+	if err := database.CreateEntry(ctx, entryDownloadingMissing); err != nil {
+		t.Fatalf("failed to create downloading entry: %v", err)
+	}
+
+	entryTransferringMissing := &db.Entry{
+		Source:         "test",
+		SourceID:       "transfer-missing-time",
+		MediaType:      "movie",
+		Title:          "Transfer Missing Time",
+		Season:         0,
+		Status:         string(StatusTransferring),
+		TransferTaskID: sql.NullString{String: "task-transfer-missing", Valid: true},
+	}
+	if err := database.CreateEntry(ctx, entryTransferringMissing); err != nil {
+		t.Fatalf("failed to create transferring entry: %v", err)
+	}
+
+	downloadingCalls := 0
+	transferringCalls := 0
+
+	callbacks := &RecoveryCallbacks{
+		OnDownloading: func(entryID, taskID string, downloadStartedAt time.Time) error {
+			downloadingCalls++
+			return nil
+		},
+		OnTransferring: func(entryID, taskID string, transferStartedAt time.Time) error {
+			transferringCalls++
+			return nil
+		},
+	}
+
+	if err := sm.RecoverOnStartup(ctx, callbacks); err != nil {
+		t.Fatalf("RecoverOnStartup() failed: %v", err)
+	}
+
+	if downloadingCalls != 0 {
+		t.Fatalf("expected 0 downloading callback calls, got %d", downloadingCalls)
+	}
+	if transferringCalls != 0 {
+		t.Fatalf("expected 0 transferring callback calls, got %d", transferringCalls)
+	}
+}
+
 func TestStateMachine_ConcurrentTransitions(t *testing.T) {
 	database := setupTestDB(t)
 	defer database.Close()

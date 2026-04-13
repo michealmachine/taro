@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 )
 
@@ -302,6 +303,9 @@ func TestEntryUniqueConstraint(t *testing.T) {
 	if err == nil {
 		t.Error("expected error when creating duplicate entry")
 	}
+	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "unique") {
+		t.Errorf("expected unique constraint error, got: %v", err)
+	}
 
 	// 创建不同季的条目应该成功
 	entry3 := &Entry{
@@ -315,6 +319,43 @@ func TestEntryUniqueConstraint(t *testing.T) {
 
 	if err := db.CreateEntry(ctx, entry3); err != nil {
 		t.Errorf("failed to create entry with different season: %v", err)
+	}
+}
+
+func TestEntryUniqueConstraint_ManualUUIDDistinct(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+
+	entry1 := &Entry{
+		Title:     "Manual Entry 1",
+		MediaType: "movie",
+		Source:    "manual",
+		SourceID:  "manual-uuid-1",
+		Season:    0,
+		Status:    "pending",
+	}
+	entry2 := &Entry{
+		Title:     "Manual Entry 2",
+		MediaType: "movie",
+		Source:    "manual",
+		SourceID:  "manual-uuid-2",
+		Season:    0,
+		Status:    "pending",
+	}
+
+	if err := db.CreateEntry(ctx, entry1); err != nil {
+		t.Fatalf("failed to create first manual entry: %v", err)
+	}
+	if err := db.CreateEntry(ctx, entry2); err != nil {
+		t.Fatalf("failed to create second manual entry: %v", err)
+	}
+
+	entries, err := db.ListEntries(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to list entries: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 manual entries, got %d", len(entries))
 	}
 }
 
