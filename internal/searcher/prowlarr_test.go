@@ -431,13 +431,13 @@ func TestSearchProwlarr(t *testing.T) {
 				Indexer:   "Nyaa",
 			},
 			{
-				Title:       "[HorribleSubs] Attack on Titan - 01 (720p).mkv",
-				GUID:        "guid-2",
-				DownloadURL: "http://example.com/download/2",
-				Size:        1024 * 1024 * 300, // 300MB
-				Seeders:     50,
-				IndexerID:   2,
-				Indexer:     "TokyoTosho",
+				Title:     "[HorribleSubs] Attack on Titan - 01 (720p).mkv",
+				GUID:      "guid-2",
+				MagnetURL: "magnet:?xt=urn:btih:0987654321",
+				Size:      1024 * 1024 * 300, // 300MB
+				Seeders:   50,
+				IndexerID: 2,
+				Indexer:   "TokyoTosho",
 			},
 		}
 
@@ -479,9 +479,9 @@ func TestSearchProwlarr(t *testing.T) {
 		t.Errorf("results[0].Seeders = %d, want 100", results[0].Seeders)
 	}
 
-	// Verify second result (should use DownloadURL as fallback)
-	if results[1].Magnet != "http://example.com/download/2" {
-		t.Errorf("results[1].Magnet = %q, want %q", results[1].Magnet, "http://example.com/download/2")
+	// Verify second result
+	if results[1].Magnet != "magnet:?xt=urn:btih:0987654321" {
+		t.Errorf("results[1].Magnet = %q, want %q", results[1].Magnet, "magnet:?xt=urn:btih:0987654321")
 	}
 }
 
