@@ -6,9 +6,10 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY . .
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o taro ./cmd/taro/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o taro ./cmd/taro
 
 # Runtime stage
 FROM alpine:latest
