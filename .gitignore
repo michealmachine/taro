@@ -47,3 +47,4 @@ login.toml
 # Temporary files
 tmp/
 temp/
+*.sh
