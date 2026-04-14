@@ -316,14 +316,11 @@ func (s *Searcher) searchProwlarr(ctx context.Context, query string) ([]SearchRe
 	// Convert to internal format
 	results := make([]SearchResult, 0, len(prowlarrResults))
 	for _, pr := range prowlarrResults {
-		// Prefer magnet URL, fallback to download URL
+		// Only use magnet URLs - download URLs are internal Prowlarr addresses
+		// that PikPak cloud cannot access
 		magnetURL := pr.MagnetURL
 		if magnetURL == "" {
-			magnetURL = pr.DownloadURL
-		}
-
-		if magnetURL == "" {
-			s.logger.Warn("skipping result without download URL", "title", pr.Title)
+			s.logger.Debug("skipping result without magnet URL", "title", pr.Title)
 			continue
 		}
 
