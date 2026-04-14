@@ -249,38 +249,38 @@
         4. 关闭数据库连接
       - _需求：1.6_
 
-  - [ ] 4.3 编写核心模块单元测试
-    - [ ] 4.3.1 状态机测试（state/machine_test.go）
+  - [x] 4.3 编写核心模块单元测试
+    - [x] 4.3.1 状态机测试（state/machine_test.go）
       - 测试所有合法状态转换
       - 测试非法状态转换被拒绝
       - 测试审计日志完整性（P3 属性）
       - 测试并发状态转换的互斥锁保护
       - _验证：P1 状态转换合法性、P3 审计日志完整性_
     
-    - [ ] 4.3.2 去重逻辑测试（db/entry_test.go）
+    - [x] 4.3.2 去重逻辑测试（db/entry_test.go）
       - 测试相同 (source, source_id, season) 的条目不能重复创建
       - 测试 UNIQUE 约束生效
       - _验证：P2 去重唯一性_
     
-    - [ ] 4.3.3 Webhook 匹配测试（webhook/jellyfin_test.go）
+    - [x] 4.3.3 Webhook 匹配测试（webhook/jellyfin_test.go）
       - 测试路径前缀匹配逻辑
       - 测试只匹配 transferred 状态的条目
       - 测试剧集多文件匹配（首次匹配后状态变化，后续忽略）
       - _验证：P4 Jellyfin 匹配精确性_
     
-    - [ ] 4.3.4 智能重试测试（state/retry_test.go）
+    - [x] 4.3.4 智能重试测试（service/action_test.go，覆盖 RetryEntry）
       - 测试 transferring 失败且文件存在 → downloaded
       - 测试 transferring 失败且文件不存在 → pending
       - 测试其他阶段失败 → pending
       - 测试历史记录清理逻辑
     
-    - [ ] 4.3.5 PikPak 垃圾回收测试（downloader/gc_test.go）
+    - [x] 4.3.5 PikPak 垃圾回收测试（downloader/gc_test.go）
       - 测试多次执行 GC 的幂等性
       - _验证：P5 PikPak 清理幂等性_
 
 - [ ] 5. Checkpoint - 核心流程验证
   - 部署 taro-transfer 到 HuggingFace Space（或本地模拟）
-  - 确保所有单元测试通过
+  - [x] 确保所有单元测试通过
   - 手动验证核心流程：添加条目 → 搜索 → 下载 → 转存 → 入库
   - 验证系统重启后的恢复逻辑（P6 重启恢复完整性）
   - 检查树莓派资源占用（内存 < 200MB，CPU 空闲时 < 5%）

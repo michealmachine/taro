@@ -7,24 +7,28 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/michealmachine/taro/internal/service"
+	"github.com/michealmachine/taro/internal/web/handlers"
 	"github.com/michealmachine/taro/internal/webhook"
 )
 
 // Server represents the minimal HTTP server for webhooks and health checks
 // Full WebUI will be implemented in Task 6.2
 type Server struct {
-	port           int
-	server         *http.Server
-	webhookHandler *webhook.JellyfinHandler
-	logger         *slog.Logger
+	port            int
+	server          *http.Server
+	webhookHandler  *webhook.JellyfinHandler
+	entriesHandler  *handlers.EntriesHandler
+	logger          *slog.Logger
 }
 
 // NewServer creates a new HTTP server
-func NewServer(port int, webhookHandler *webhook.JellyfinHandler, logger *slog.Logger) *Server {
+func NewServer(port int, webhookHandler *webhook.JellyfinHandler, actionService *service.ActionService, logger *slog.Logger) *Server {
 	return &Server{
-		port:           port,
-		webhookHandler: webhookHandler,
-		logger:         logger,
+		port:            port,
+		webhookHandler:  webhookHandler,
+		entriesHandler:  handlers.NewEntriesHandler(actionService, logger),
+		logger:          logger,
 	}
 }
 
@@ -37,6 +41,9 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Jellyfin webhook endpoint (required for transferred -> in_library transition)
 	mux.HandleFunc("POST /webhook/jellyfin", s.webhookHandler.HandleJellyfin)
+
+	// Entry management endpoints (Task 6.2.2)
+	mux.HandleFunc("POST /entries", s.entriesHandler.HandleAddEntry)
 
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", s.port),

@@ -188,6 +188,10 @@ func run(configPath string) error {
 	gc := downloader.NewGarbageCollector(pikpakDownloader, database, cfg, logger)
 	logger.Info("garbage collector initialized")
 
+	// Initialize ActionService (for user actions: add, retry, cancel, select)
+	actionService := service.NewActionService(database, sm, logger)
+	logger.Info("action service initialized")
+
 	// Recover on startup
 	logger.Info("recovering state on startup")
 	if err := sm.RecoverOnStartup(context.Background(), &state.RecoveryCallbacks{
@@ -401,9 +405,9 @@ func run(configPath string) error {
 	gc.Start(ctx)
 	logger.Info("garbage collector started")
 
-	// Start HTTP server (webhook + health check)
+	// Start HTTP server (webhook + health check + entry management)
 	// Full WebUI will be implemented in Task 6.2
-	httpServer := web.NewServer(cfg.Server.Port, jellyfinHandler, logger)
+	httpServer := web.NewServer(cfg.Server.Port, jellyfinHandler, actionService, logger)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
