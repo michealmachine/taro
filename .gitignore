@@ -1,6 +1,6 @@
 # Binaries
-taro
-taroctl
+/taro
+/taroctl
 taro-*.exe
 taro-*.dll
 taroctl-*
