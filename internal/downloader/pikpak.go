@@ -41,14 +41,16 @@ type PollingTask struct {
 	SubmitTime time.Time
 }
 
-// pikpakTaskStatus represents the JSON output of `pikpaktui offline status --json`
+// pikpakTaskStatus represents a task from `pikpaktui tasks list --json`
 type pikpakTaskStatus struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Phase    string `json:"phase"` // "PHASE_TYPE_PENDING" | "PHASE_TYPE_RUNNING" | "PHASE_TYPE_COMPLETE" | "PHASE_TYPE_ERROR"
-	Progress int    `json:"progress"`
-	FileID   string `json:"file_id"`
-	Message  string `json:"message"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Phase     string `json:"phase"` // "PHASE_TYPE_PENDING" | "PHASE_TYPE_RUNNING" | "PHASE_TYPE_COMPLETE" | "PHASE_TYPE_ERROR"
+	Progress  int    `json:"progress"`
+	FileID    string `json:"file_id"`
+	FileSize  string `json:"file_size"`
+	Message   string `json:"message"`
+	CreatedAt string `json:"created_time"`
 }
 
 // NewPikPakDownloader creates a new PikPak downloader
@@ -117,7 +119,11 @@ func (d *PikPakDownloader) Submit(ctx context.Context, entry *db.Entry, magnetUR
 
 	// Step 2: Submit offline download via pikpaktui CLI
 	// pikpaktui offline <url>
-	// Output format: "✓ Offline download added: <name> (ID: <task_id>)"
+	// Output format:
+	// Offline task created: <name>
+	//   ID:    <task_id>
+	//   Phase: <phase>
+	//   File:
 	out, err := d.runCLI(ctx, "offline", magnetURL)
 	if err != nil {
 		if transErr := d.sm.TransitionToFailed(ctx, entry.ID, state.FailureServiceUnreachable, "downloading",
@@ -128,22 +134,25 @@ func (d *PikPakDownloader) Submit(ctx context.Context, entry *db.Entry, magnetUR
 	}
 
 	// Parse task ID from text output
-	// Expected format: "✓ Offline download added: <name> (ID: <task_id>)"
 	output := string(out)
 	taskID := ""
 	
-	// Look for "ID: <task_id>" pattern
-	if idx := strings.Index(output, "ID: "); idx != -1 {
-		idStart := idx + 4
-		idEnd := strings.IndexAny(output[idStart:], ")\n")
-		if idEnd != -1 {
-			taskID = strings.TrimSpace(output[idStart : idStart+idEnd])
+	// Look for "ID:    <task_id>" pattern (note: multiple spaces after ID:)
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ID:") {
+			// Extract ID value after "ID:" and trim spaces
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				taskID = strings.TrimSpace(parts[1])
+				break
+			}
 		}
 	}
 	
 	if taskID == "" {
-		// Fallback: try to extract any UUID-like string
-		d.logger.Warn("failed to parse task ID from standard format, trying fallback", "output", output)
+		d.logger.Error("failed to parse task ID from pikpaktui output", "output", output)
 		return fmt.Errorf("failed to parse task ID from pikpaktui output: %s", output)
 	}
 
@@ -175,27 +184,33 @@ func (d *PikPakDownloader) Submit(ctx context.Context, entry *db.Entry, magnetUR
 // getTaskStatus queries the status of a single offline task
 // Returns nil if task not found
 func (d *PikPakDownloader) getTaskStatus(ctx context.Context, taskID string) (*pikpakTaskStatus, error) {
-	// pikpaktui offline status <task_id> --json
-	out, err := d.runCLI(ctx, "offline", "status", taskID, "--json")
+	// pikpaktui tasks list --json
+	// Returns array of all tasks, we need to find the one matching taskID
+	out, err := d.runCLI(ctx, "tasks", "list", "--json")
 	if err != nil {
-		// Exit code 1 with "not found" message means task doesn't exist
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "404") {
-			return nil, nil
-		}
-		return nil, err
+		return nil, fmt.Errorf("failed to list tasks: %w", err)
 	}
 
-	var status pikpakTaskStatus
-	if err := json.Unmarshal(out, &status); err != nil {
-		return nil, fmt.Errorf("failed to parse task status: %w", err)
+	var tasks []pikpakTaskStatus
+	if err := json.Unmarshal(out, &tasks); err != nil {
+		return nil, fmt.Errorf("failed to parse tasks list: %w", err)
 	}
-	return &status, nil
+
+	// Find task by ID
+	for _, task := range tasks {
+		if task.ID == taskID {
+			return &task, nil
+		}
+	}
+
+	// Task not found
+	return nil, nil
 }
 
 // deleteFile deletes a file from PikPak by file ID
 func (d *PikPakDownloader) deleteFile(ctx context.Context, fileID string) error {
-	// pikpaktui rm <file_id> --json
-	_, err := d.runCLI(ctx, "rm", fileID, "--json")
+	// pikpaktui rm <file_id>
+	_, err := d.runCLI(ctx, "rm", fileID)
 	return err
 }
 
