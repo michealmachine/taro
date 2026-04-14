@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -106,6 +107,11 @@ func run(configPath string) error {
 	// Initialize searcher (required)
 	prowlarrSearcher := searcher.NewSearcher(cfg, database, sm, logger)
 	logger.Info("prowlarr searcher initialized")
+
+	// Auto-login to PikPak using credentials from config
+	if err := ensurePikPakLogin(cfg, logger); err != nil {
+		logger.Warn("failed to auto-login to pikpak, will retry on first use", "error", err)
+	}
 
 	// Initialize downloader (required)
 	pikpakDownloader, err := downloader.NewPikPakDownloader(cfg, database, sm, logger)
@@ -500,4 +506,16 @@ func initLogger(cfg *config.Config) *slog.Logger {
 	}
 
 	return slog.New(handler)
+}
+
+// ensurePikPakLogin ensures pikpaktui is logged in using credentials from config
+func ensurePikPakLogin(cfg *config.Config, logger *slog.Logger) error {
+	// Run pikpaktui login with credentials from config
+	cmd := exec.Command("pikpaktui", "login", "-u", cfg.PikPak.Username, "-p", cfg.PikPak.Password)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("pikpaktui login failed: %w (output: %s)", err, string(output))
+	}
+	logger.Info("pikpak auto-login successful", "user", cfg.PikPak.Username)
+	return nil
 }
