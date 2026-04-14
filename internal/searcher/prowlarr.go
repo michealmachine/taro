@@ -3,17 +3,20 @@ package searcher
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/anacrolix/torrent/metainfo"
 	"github.com/michealmachine/taro/internal/config"
 	"github.com/michealmachine/taro/internal/db"
 	"github.com/michealmachine/taro/internal/state"
@@ -316,9 +319,20 @@ func (s *Searcher) searchProwlarr(ctx context.Context, query string) ([]SearchRe
 	// Convert to internal format
 	results := make([]SearchResult, 0, len(prowlarrResults))
 	for _, pr := range prowlarrResults {
-		// Only use magnet URLs - download URLs are internal Prowlarr addresses
-		// that PikPak cloud cannot access
 		magnetURL := pr.MagnetURL
+
+		// If no magnet URL but has download URL, try to convert .torrent to magnet
+		if magnetURL == "" && pr.DownloadURL != "" {
+			s.logger.Debug("attempting to convert torrent to magnet", "title", pr.Title, "download_url", pr.DownloadURL)
+			converted, err := s.torrentToMagnet(ctx, pr.DownloadURL)
+			if err != nil {
+				s.logger.Debug("failed to convert torrent to magnet", "title", pr.Title, "error", err)
+				continue
+			}
+			magnetURL = converted
+			s.logger.Info("successfully converted torrent to magnet", "title", pr.Title)
+		}
+
 		if magnetURL == "" {
 			s.logger.Debug("skipping result without magnet URL", "title", pr.Title)
 			continue
@@ -335,6 +349,66 @@ func (s *Searcher) searchProwlarr(ctx context.Context, query string) ([]SearchRe
 	}
 
 	return results, nil
+}
+
+// torrentToMagnet downloads a .torrent file from Prowlarr and converts it to a magnet URI
+func (s *Searcher) torrentToMagnet(ctx context.Context, downloadURL string) (string, error) {
+	// Create temporary file for .torrent
+	tmpFile, err := os.CreateTemp("", "taro-torrent-*.torrent")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	// Download .torrent file from Prowlarr (internal network accessible from Pi)
+	req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("X-Api-Key", s.apiKey)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to download torrent: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("unexpected status code %d", resp.StatusCode)
+	}
+
+	// Write to temp file
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		return "", fmt.Errorf("failed to write torrent file: %w", err)
+	}
+
+	// Close file before reading with metainfo
+	if err := tmpFile.Close(); err != nil {
+		return "", fmt.Errorf("failed to close temp file: %w", err)
+	}
+
+	// Parse .torrent file
+	mi, err := metainfo.LoadFromFile(tmpFile.Name())
+	if err != nil {
+		return "", fmt.Errorf("failed to parse torrent: %w", err)
+	}
+
+	// Get info hash
+	info, err := mi.UnmarshalInfo()
+	if err != nil {
+		return "", fmt.Errorf("failed to unmarshal info: %w", err)
+	}
+
+	infoHash := mi.HashInfoBytes()
+
+	// Construct magnet URI
+	// Format: magnet:?xt=urn:btih:HASH&dn=NAME
+	magnetURI := fmt.Sprintf("magnet:?xt=urn:btih:%s&dn=%s",
+		hex.EncodeToString(infoHash[:]),
+		url.QueryEscape(info.Name))
+
+	return magnetURI, nil
 }
 
 // extractResolution extracts resolution from title using regex
