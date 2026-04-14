@@ -20,6 +20,7 @@ import (
 	"github.com/michealmachine/taro/internal/poller"
 	"github.com/michealmachine/taro/internal/scheduler"
 	"github.com/michealmachine/taro/internal/searcher"
+	"github.com/michealmachine/taro/internal/service"
 	"github.com/michealmachine/taro/internal/state"
 	"github.com/michealmachine/taro/internal/transfer"
 	"github.com/michealmachine/taro/internal/web"
