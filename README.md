@@ -1,193 +1,185 @@
-# Taro - 个人媒体库自动化系统
+# taro
+
+个人媒体库自动化系统，运行在树莓派上。将"想看"的意图转化为"已入库"的结果，全程自动化。
 
 [![CI](https://github.com/michealmachine/taro/actions/workflows/ci.yml/badge.svg)](https://github.com/michealmachine/taro/actions/workflows/ci.yml)
-[![Release](https://github.com/michealmachine/taro/actions/workflows/release.yml/badge.svg)](https://github.com/michealmachine/taro/actions/workflows/release.yml)
+[![Docker](https://img.shields.io/docker/v/double2and9/taro?label=docker)](https://hub.docker.com/r/double2and9/taro)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/michealmachine/taro)](https://go.dev/)
-[![License](https://img.shields.io/github/license/michealmachine/taro)](LICENSE)
 
-Taro 是一个运行在树莓派上的个人媒体库自动化管理系统，将"想看"的意图转化为"已入库"的结果，全程自动化。
-
-## ✨ 特性
-
-- 🎬 **自动化流程**：从收藏到入库，全程自动化
-- 📱 **多端交互**：WebUI、CLI、Telegram Bot 三种交互方式
-- 🔄 **智能状态机**：11 种状态精确追踪每个条目的生命周期
-- 🌐 **平台集成**：支持 Bangumi（动漫）和 Trakt（电影/剧集）
-- 💾 **离线下载**：通过 PikPak 云端离线下载
-- ☁️ **云端转存**：利用 HuggingFace Space 转存到 OneDrive
-- 🎯 **智能重试**：失败后智能选择重试起点，避免重复下载
-- 🔍 **资源搜索**：通过 Prowlarr 聚合多个资源站点
-- 📊 **状态追踪**：完整的审计日志和状态历史
-
-## 🏗️ 架构
+## 工作流程
 
 ```
-用户收藏 (Bangumi/Trakt)
-    ↓
-资源搜索 (Prowlarr)
-    ↓
-离线下载 (PikPak)
-    ↓
-云端转存 (taro-transfer on HuggingFace Space)
-    ↓
-本地挂载 (OneDrive on Raspberry Pi)
-    ↓
-媒体入库 (Jellyfin)
-    ↓
-状态回调 (更新平台状态)
+Bangumi / Trakt 收藏
+        ↓
+  Prowlarr 资源搜索
+        ↓
+   PikPak 离线下载
+        ↓
+ taro-transfer 转存
+ (HuggingFace Space)
+        ↓
+  OneDrive → 本地挂载
+        ↓
+    Jellyfin 入库
+        ↓
+  平台状态回调
 ```
 
-## 🚀 快速开始
+## 开发进度
+
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| 基础设施（DB、状态机、配置） | ✅ 完成 | |
+| 核心业务模块 | ✅ 完成 | 搜索、下载、转存、Webhook、平台回调 |
+| taro-transfer 子服务 | ✅ 完成 | 部署在 HuggingFace Space |
+| 调度器与主服务集成 | ✅ 完成 | |
+| 单元测试 | ✅ 完成 | 状态机、去重、Webhook 匹配、智能重试、GC |
+| Checkpoint - 核心流程验证 | 🔄 进行中 | 端到端测试中 |
+| WebUI | ⏳ 待开发 | templ + HTMX |
+| Telegram Bot | ⏳ 待开发 | |
+| CLI (taroctl) | ⏳ 待开发 | |
+
+## 部署
 
 ### 前置要求
 
-- 树莓派（推荐 4B 或更高）
-- Docker 和 Docker Compose
-- OneDrive 账号（通过 rclone 挂载）
+- 树莓派（4B 或更高）+ Docker
 - PikPak 账号
 - Prowlarr 实例
+- OneDrive（通过 rclone 挂载）
 - Jellyfin 实例
-- Telegram Bot Token（可选）
-- Bangumi/Trakt OAuth2 凭证
+- HuggingFace 账号（用于部署 taro-transfer）
 
-### 使用 Docker Compose 部署
+### taro-transfer
 
-1. 下载配置文件模板：
+taro-transfer 是一个独立的转存服务，负责将文件从 PikPak 复制到 OneDrive。需要部署在有公网访问的环境（推荐 HuggingFace Space）。
 
-```bash
-wget https://raw.githubusercontent.com/michealmachine/taro/master/config.yaml.example -O config.yaml
-```
+1. Fork 本仓库，在 HuggingFace 创建一个 Docker Space
+2. 配置以下 Secrets：
+   - `RCLONE_CONFIG_B64`：base64 编码的 rclone.conf（需包含 pikpak 和 onedrive 两个 remote）
+   - `TARO_TRANSFER_TOKEN`：自定义的访问令牌
 
-2. 编辑 `config.yaml`，填入你的配置
+### taro 主服务
 
-3. 创建 `docker-compose.yml`：
+1. 创建 `config.yaml`（参考 `config.yaml.example`）：
 
 ```yaml
-version: '3.8'
+server:
+  port: 8080
+  db_path: /data/taro.db
+
+prowlarr:
+  url: "http://your-prowlarr:9696"
+  api_key: "your-api-key"
+
+pikpak:
+  username: "your@email.com"
+  password: "your-password"
+
+transfer:
+  url: "https://your-space.hf.space"
+  token: "your-token"
+
+onedrive:
+  media_root: "Media"        # OneDrive 中的媒体根目录
+  mount_path: "/mnt/onedrive" # 本地挂载路径（留空则跳过健康检测）
+```
+
+2. 创建 `docker-compose.yml`：
+
+```yaml
 services:
   taro:
-    image: ghcr.io/michealmachine/taro:latest
+    image: double2and9/taro:latest
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8090:8080"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/data
-      - /mnt/onedrive:/mnt/onedrive:ro
-    environment:
-      - TARO_PIKPAK_PASSWORD=${PIKPAK_PASSWORD}
-      - TARO_TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TARO_TRANSFER_TOKEN=${TRANSFER_TOKEN}
+      - ./data/pikpaktui:/root/.config/pikpaktui
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 3s
       retries: 3
 ```
 
-4. 启动服务：
+3. 启动：
 
 ```bash
+mkdir -p data
 docker-compose up -d
 ```
 
-### 使用二进制文件部署
+> PikPak 登录凭据从 config.yaml 读取，容器启动时自动登录，无需手动操作。
 
-1. 从 [Releases](https://github.com/michealmachine/taro/releases) 下载对应架构的二进制文件
+### Jellyfin Webhook 配置
 
-2. 解压并运行：
+安装 Jellyfin Webhook 插件，添加一个通用 Webhook，URL 设为：
 
-```bash
-tar xzf taro-v1.0.0-linux-arm64.tar.gz
-./taro-linux-arm64 --config config.yaml
+```
+http://your-taro-host:8090/webhook/jellyfin
 ```
 
-## 📖 文档
+请求体模板（JSON）：
 
-完整的项目文档位于 `.kiro/specs/taro/` 目录：
+```json
+{
+  "NotificationType": "{{NotificationType}}",
+  "ItemType": "{{ItemType}}",
+  "Path": "{{Path}}"
+}
+```
 
-- [需求文档](/.kiro/specs/taro/requirements.md) - 15 个需求及验收标准
-- [设计文档](/.kiro/specs/taro/design.md) - 架构设计、数据库设计、模块设计
-- [任务文档](/.kiro/specs/taro/tasks.md) - 8 阶段实现计划
+## API
 
-## 🛠️ 开发
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | /health | 健康检查 |
+| POST | /entries | 手动添加条目 |
+| POST | /webhook/jellyfin | Jellyfin 入库回调 |
 
-### 环境要求
-
-- Go 1.22+
-- Docker（用于构建镜像）
-
-### 本地开发
+**POST /entries 示例：**
 
 ```bash
-# 克隆仓库
-git clone https://github.com/michealmachine/taro.git
-cd taro
+curl -X POST http://localhost:8090/entries \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"葬送的芙莉莲","media_type":"anime","season":1}'
+```
 
-# 安装依赖
+## 条目状态流转
+
+```
+pending → searching → found → downloading → downloaded → transferring → transferred → in_library
+                    ↘ needs_selection ↗
+任意状态 → failed / cancelled
+```
+
+## 本地开发
+
+```bash
 go mod download
-
-# 运行测试
 go test ./...
-
-# 构建
 go build -o taro ./cmd/taro
-go build -o taroctl ./cmd/taroctl
-
-# 运行
 ./taro --config config.yaml
 ```
 
-### CLI 工具
-
-> **注意**：CLI 工具功能尚在开发中（Task 6.3）。当前版本仅显示版本信息。
-
-计划支持的命令：
+Docker 镜像构建（手动触发 GitHub Actions）：
 
 ```bash
-# 列出所有条目
-taroctl list
-
-# 添加条目
-taroctl add "进击的巨人"
-
-# 查看待选择队列
-taroctl pending
-
-# 重试失败条目
-taroctl retry <entry_id>
-
-# 查看系统状态
-taroctl status
+gh workflow run taro.yml
 ```
 
-## 🤝 贡献
+## 依赖
 
-欢迎贡献！请查看 [任务文档](/.kiro/specs/taro/tasks.md) 了解当前的开发进度。
-
-## 📝 许可证
-
-[MIT License](LICENSE)
-
-## 🙏 致谢
-
+- [pikpaktui](https://github.com/Bengerthelorf/pikpaktui) - PikPak CLI
 - [Prowlarr](https://github.com/Prowlarr/Prowlarr) - 资源索引聚合
+- [rclone](https://rclone.org/) - 云存储同步
 - [Jellyfin](https://github.com/jellyfin/jellyfin) - 媒体服务器
-- [PikPak](https://mypikpak.com/) - 云存储服务
-- [Bangumi](https://bgm.tv/) - 动漫追踪平台
-- [Trakt](https://trakt.tv/) - 影视追踪平台
-
-## 📊 项目状态
-
-当前版本：**开发中**
-
-查看 [任务文档](/.kiro/specs/taro/tasks.md) 了解详细的开发进度。
-
----
-
-**注意**：这是一个个人项目，主要用于学习和个人使用。如果你觉得有用，欢迎 Star ⭐
+- [Bangumi](https://bgm.tv/) / [Trakt](https://trakt.tv/) - 追踪平台
