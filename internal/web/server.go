@@ -15,20 +15,20 @@ import (
 // Server represents the minimal HTTP server for webhooks and health checks
 // Full WebUI will be implemented in Task 6.2
 type Server struct {
-	port            int
-	server          *http.Server
-	webhookHandler  *webhook.JellyfinHandler
-	entriesHandler  *handlers.EntriesHandler
-	logger          *slog.Logger
+	port           int
+	server         *http.Server
+	webhookHandler *webhook.JellyfinHandler
+	entriesHandler *handlers.EntriesHandler
+	logger         *slog.Logger
 }
 
 // NewServer creates a new HTTP server
 func NewServer(port int, webhookHandler *webhook.JellyfinHandler, actionService *service.ActionService, logger *slog.Logger) *Server {
 	return &Server{
-		port:            port,
-		webhookHandler:  webhookHandler,
-		entriesHandler:  handlers.NewEntriesHandler(actionService, logger),
-		logger:          logger,
+		port:           port,
+		webhookHandler: webhookHandler,
+		entriesHandler: handlers.NewEntriesHandler(actionService, logger),
+		logger:         logger,
 	}
 }
 

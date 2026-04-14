@@ -32,7 +32,7 @@ type AddEntryRequest struct {
 
 // AddEntryResponse represents the response for adding a new entry
 type AddEntryResponse struct {
-	ID int64 `json:"id"`
+	ID string `json:"id"`
 }
 
 // HandleAddEntry handles POST /entries
