@@ -24,6 +24,10 @@ WORKDIR /app
 # Copy binary from builder
 COPY --from=builder /build/taro-transfer .
 
+# Copy runtime entrypoint
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Copy rclone config (will be provided at runtime via volume mount or build arg)
 # COPY rclone.conf /root/.config/rclone/rclone.conf
 
@@ -35,4 +39,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:7860/health || exit 1
 
 # Run
-CMD ["./taro-transfer"]
+ENTRYPOINT ["/entrypoint.sh"]
