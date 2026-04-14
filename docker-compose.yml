@@ -1,0 +1,22 @@
+services:
+  taro:
+    image: double2and9/taro:latest
+    container_name: taro
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/data
+    command: ["--config", "/app/config.yaml"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
