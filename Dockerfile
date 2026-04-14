@@ -8,7 +8,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o taro ./cmd/taro
+RUN CGO_ENABLED=0 GOOS=linux go build -o taro ./cmd/taro/main.go
 
 # Runtime stage
 FROM alpine:latest
