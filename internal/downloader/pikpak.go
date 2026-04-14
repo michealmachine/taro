@@ -136,7 +136,7 @@ func (d *PikPakDownloader) Submit(ctx context.Context, entry *db.Entry, magnetUR
 	// Parse task ID from text output
 	output := string(out)
 	taskID := ""
-	
+
 	// Look for "ID:    <task_id>" pattern (note: multiple spaces after ID:)
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
@@ -150,7 +150,7 @@ func (d *PikPakDownloader) Submit(ctx context.Context, entry *db.Entry, magnetUR
 			}
 		}
 	}
-	
+
 	if taskID == "" {
 		d.logger.Error("failed to parse task ID from pikpaktui output", "output", output)
 		return fmt.Errorf("failed to parse task ID from pikpaktui output: %s", output)
