@@ -8,6 +8,10 @@ services:
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/data
+      - ./data/pikpaktui:/root/.config/pikpaktui
+    environment:
+      - PIKPAK_USER=
+      - PIKPAK_PASS=
     command: ["--config", "/app/config.yaml"]
     logging:
       driver: json-file

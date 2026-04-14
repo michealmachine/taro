@@ -116,8 +116,9 @@ func (d *PikPakDownloader) Submit(ctx context.Context, entry *db.Entry, magnetUR
 	}
 
 	// Step 2: Submit offline download via pikpaktui CLI
-	// pikpaktui offline add <magnet_url> --json
-	out, err := d.runCLI(ctx, "offline", "add", magnetURL, "--json")
+	// pikpaktui offline <url>
+	// Output format: "✓ Offline download added: <name> (ID: <task_id>)"
+	out, err := d.runCLI(ctx, "offline", magnetURL)
 	if err != nil {
 		if transErr := d.sm.TransitionToFailed(ctx, entry.ID, state.FailureServiceUnreachable, "downloading",
 			fmt.Sprintf("failed to submit offline download: %v", err)); transErr != nil {
@@ -126,19 +127,26 @@ func (d *PikPakDownloader) Submit(ctx context.Context, entry *db.Entry, magnetUR
 		return fmt.Errorf("failed to submit offline download: %w", err)
 	}
 
-	// Parse task ID from JSON output
-	var result struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
+	// Parse task ID from text output
+	// Expected format: "✓ Offline download added: <name> (ID: <task_id>)"
+	output := string(out)
+	taskID := ""
+	
+	// Look for "ID: <task_id>" pattern
+	if idx := strings.Index(output, "ID: "); idx != -1 {
+		idStart := idx + 4
+		idEnd := strings.IndexAny(output[idStart:], ")\n")
+		if idEnd != -1 {
+			taskID = strings.TrimSpace(output[idStart : idStart+idEnd])
+		}
 	}
-	if err := json.Unmarshal(out, &result); err != nil {
-		return fmt.Errorf("failed to parse pikpaktui output: %w (raw: %s)", err, string(out))
-	}
-	if result.ID == "" {
-		return fmt.Errorf("pikpaktui returned empty task ID (raw: %s)", string(out))
+	
+	if taskID == "" {
+		// Fallback: try to extract any UUID-like string
+		d.logger.Warn("failed to parse task ID from standard format, trying fallback", "output", output)
+		return fmt.Errorf("failed to parse task ID from pikpaktui output: %s", output)
 	}
 
-	taskID := result.ID
 	d.logger.Info("download submitted", "entry_id", entry.ID, "task_id", taskID)
 
 	// Step 3: Transition to downloading (StateMachine sets download_started_at)

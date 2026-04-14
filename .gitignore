@@ -41,6 +41,8 @@ data/
 
 # Docker
 .dockerignore
+docker-compose.yml
+login.toml
 
 # Temporary files
 tmp/
