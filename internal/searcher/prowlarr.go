@@ -321,20 +321,28 @@ func (s *Searcher) searchProwlarr(ctx context.Context, query string) ([]SearchRe
 	for _, pr := range prowlarrResults {
 		magnetURL := pr.MagnetURL
 
-		// If no magnet URL but has download URL, try to convert .torrent to magnet
-		if magnetURL == "" && pr.DownloadURL != "" {
-			s.logger.Debug("attempting to convert torrent to magnet", "title", pr.Title, "download_url", pr.DownloadURL)
-			converted, err := s.torrentToMagnet(ctx, pr.DownloadURL)
-			if err != nil {
-				s.logger.Debug("failed to convert torrent to magnet", "title", pr.Title, "error", err)
-				continue
+		// Check if magnetURL is actually a magnet URI (starts with "magnet:")
+		// If not, try to convert from downloadURL
+		if !strings.HasPrefix(magnetURL, "magnet:") {
+			downloadURL := magnetURL
+			if downloadURL == "" {
+				downloadURL = pr.DownloadURL
 			}
-			magnetURL = converted
-			s.logger.Info("successfully converted torrent to magnet", "title", pr.Title)
+
+			if downloadURL != "" {
+				s.logger.Debug("attempting to convert torrent to magnet", "title", pr.Title, "download_url", downloadURL)
+				converted, err := s.torrentToMagnet(ctx, downloadURL)
+				if err != nil {
+					s.logger.Debug("failed to convert torrent to magnet", "title", pr.Title, "error", err)
+					continue
+				}
+				magnetURL = converted
+				s.logger.Info("successfully converted torrent to magnet", "title", pr.Title)
+			}
 		}
 
-		if magnetURL == "" {
-			s.logger.Debug("skipping result without magnet URL", "title", pr.Title)
+		if magnetURL == "" || !strings.HasPrefix(magnetURL, "magnet:") {
+			s.logger.Debug("skipping result without valid magnet URL", "title", pr.Title)
 			continue
 		}
 
