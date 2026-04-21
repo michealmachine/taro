@@ -83,7 +83,7 @@ func NewSearcher(cfg *config.Config, database *db.DB, sm *state.StateMachine, lo
 		database:    database,
 		sm:          sm,
 		client: &http.Client{
-			Timeout: 60 * time.Second, // Prowlarr searches can take longer
+			Timeout: 120 * time.Second, // Increased timeout for FlareSolver + CloudFlare bypass on resource-constrained servers
 		},
 		logger:         logger,
 		excludedCodecs: cfg.Defaults.ExcludedCodecs,
