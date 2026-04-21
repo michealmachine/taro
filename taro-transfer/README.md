@@ -68,8 +68,10 @@
 1. 创建 Space，选择 Docker 运行时
 2. 上传 Dockerfile 和源代码
 3. 配置 rclone.conf（包含 PikPak 和 OneDrive 配置）
-4. 设置环境变量（必填）：
-   - `TARO_TRANSFER_TOKEN`: API 认证 token（与主服务 `transfer.token` 配置一致）
+4. 设置环境变量：
+   - `TARO_TRANSFER_TOKEN`: API 认证 token（与主服务 `transfer.token` 配置一致）**（必填）**
+   - `RCLONE_SOURCE_REMOTE`: rclone 源 remote 名称（默认: `pikpak`）
+   - `RCLONE_TARGET_REMOTE`: rclone 目标 remote 名称（默认: `onedrive`）
 
 ### 本地测试
 
@@ -80,6 +82,8 @@ docker build -t taro-transfer .
 # 运行（需要挂载 rclone.conf）
 docker run -p 7860:7860 \
   -e TARO_TRANSFER_TOKEN=your_shared_token \
+  -e RCLONE_SOURCE_REMOTE=pikpak \
+  -e RCLONE_TARGET_REMOTE=E5_warmachine \
   -v ~/.config/rclone:/root/.config/rclone:ro \
   taro-transfer
 ```
@@ -100,6 +104,8 @@ token = {"access_token":"...","token_type":"Bearer",...}
 drive_id = <your_drive_id>
 drive_type = personal
 ```
+
+**注意**：如果你的 rclone 配置中 remote 名称不是 `pikpak` 或 `onedrive`（例如 `E5_warmachine`），需要通过环境变量 `RCLONE_SOURCE_REMOTE` 和 `RCLONE_TARGET_REMOTE` 指定实际的 remote 名称。
 
 ## 注意事项
 

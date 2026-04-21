@@ -15,8 +15,10 @@ import (
 
 // Handler handles HTTP requests
 type Handler struct {
-	taskManager *TaskManager
-	authToken   string
+	taskManager      *TaskManager
+	authToken        string
+	rcloneSourceName string // rclone remote name for source (e.g., "pikpak")
+	rcloneTargetName string // rclone remote name for target (e.g., "onedrive" or "E5_warmachine")
 }
 
 // NewHandler creates a new handler
@@ -27,9 +29,24 @@ func NewHandler(taskManager *TaskManager) *Handler {
 		log.Fatal("TARO_TRANSFER_TOKEN environment variable is required")
 	}
 
+	// Get rclone remote names from environment variables (with defaults)
+	rcloneSourceName := os.Getenv("RCLONE_SOURCE_REMOTE")
+	if rcloneSourceName == "" {
+		rcloneSourceName = "pikpak" // Default to pikpak
+	}
+
+	rcloneTargetName := os.Getenv("RCLONE_TARGET_REMOTE")
+	if rcloneTargetName == "" {
+		rcloneTargetName = "onedrive" // Default to onedrive
+	}
+
+	log.Printf("rclone configuration: source=%s target=%s", rcloneSourceName, rcloneTargetName)
+
 	return &Handler{
-		taskManager: taskManager,
-		authToken:   authToken,
+		taskManager:      taskManager,
+		authToken:        authToken,
+		rcloneSourceName: rcloneSourceName,
+		rcloneTargetName: rcloneTargetName,
 	}
 }
 
@@ -142,11 +159,11 @@ func (h *Handler) executeTransfer(taskID, sourcePath, targetPath string) {
 	// Update status to running
 	h.taskManager.UpdateTaskStatus(taskID, TaskStatusRunning, "")
 
-	// Construct rclone command
-	// Source: pikpak:{sourcePath}
-	// Target: onedrive:{targetPath}
-	source := fmt.Sprintf("pikpak:%s", sourcePath)
-	target := fmt.Sprintf("onedrive:%s", targetPath)
+	// Construct rclone command using configured remote names
+	// Source: {rcloneSourceName}:{sourcePath}
+	// Target: {rcloneTargetName}:{targetPath}
+	source := fmt.Sprintf("%s:%s", h.rcloneSourceName, sourcePath)
+	target := fmt.Sprintf("%s:%s", h.rcloneTargetName, targetPath)
 
 	// Execute rclone copy with 30 minute timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
