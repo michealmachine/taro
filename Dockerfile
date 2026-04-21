@@ -15,7 +15,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o taro ./cmd/taro
 FROM alpine:latest
 
 RUN apk add --no-cache ca-certificates rclone curl bash && \
-    curl -fsSL https://app.snaix.homes/pikpaktui/install | bash && \
+    curl -fsSL https://app.snaix.homes/pikpaktui/install.sh | bash && \
     apk del curl bash
 
 WORKDIR /app
