@@ -64,6 +64,7 @@ type ProwlarrConfig struct {
 type PikPakConfig struct {
 	Username        string `mapstructure:"username"`
 	Password        string `mapstructure:"password"`
+	DownloadDir     string `mapstructure:"download_dir"` // PikPak download directory (e.g., "/my pack/chad using/temp")
 	PollInterval    string `mapstructure:"poll_interval"`
 	GCInterval      string `mapstructure:"gc_interval"`
 	GCRetentionDays int    `mapstructure:"gc_retention_days"`

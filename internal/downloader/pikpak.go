@@ -118,13 +118,23 @@ func (d *PikPakDownloader) Submit(ctx context.Context, entry *db.Entry, magnetUR
 	}
 
 	// Step 2: Submit offline download via pikpaktui CLI
-	// pikpaktui offline <url>
+	// pikpaktui offline <url> [--parent <parent_dir>]
 	// Output format:
 	// Offline task created: <name>
 	//   ID:    <task_id>
 	//   Phase: <phase>
 	//   File:
-	out, err := d.runCLI(ctx, "offline", magnetURL)
+	args := []string{"offline", magnetURL}
+
+	// Add --parent flag if download_dir is configured
+	if d.config.PikPak.DownloadDir != "" {
+		args = append(args, "--parent", d.config.PikPak.DownloadDir)
+		d.logger.Debug("submitting download to specific directory",
+			"entry_id", entry.ID,
+			"download_dir", d.config.PikPak.DownloadDir)
+	}
+
+	out, err := d.runCLI(ctx, args...)
 	if err != nil {
 		if transErr := d.sm.TransitionToFailed(ctx, entry.ID, state.FailureServiceUnreachable, "downloading",
 			fmt.Sprintf("failed to submit offline download: %v", err)); transErr != nil {
@@ -358,9 +368,22 @@ func (d *PikPakDownloader) handleTaskCompleted(ctx context.Context, task *Pollin
 		return fmt.Errorf("completed task has no file_id")
 	}
 
-	// Use task name as file path (pikpaktui returns the file name in the Name field)
+	// Construct file path: <download_dir>/<filename>
 	// The transfer service will prepend "pikpak:" to construct the rclone source path
 	filePath := taskInfo.Name
+	if d.config.PikPak.DownloadDir != "" {
+		// Ensure download_dir has trailing slash for path.Join behavior
+		downloadDir := d.config.PikPak.DownloadDir
+		if !strings.HasSuffix(downloadDir, "/") {
+			downloadDir += "/"
+		}
+		filePath = downloadDir + taskInfo.Name
+	}
+
+	d.logger.Info("file path constructed",
+		"entry_id", task.EntryID,
+		"file_path", filePath,
+		"download_dir", d.config.PikPak.DownloadDir)
 
 	return d.sm.TransitionWithUpdate(ctx, task.EntryID, state.StatusDownloaded, map[string]any{
 		"pikpak_file_id":   fileID,

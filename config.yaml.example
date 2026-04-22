@@ -30,6 +30,7 @@ prowlarr:
 pikpak:
   username: "your@email.com"
   password: "xxx"
+  download_dir: "/my pack/chad using/temp"  # PikPak download directory (optional, defaults to root)
   poll_interval: "5m"
   gc_interval: "24h"
   gc_retention_days: 7
