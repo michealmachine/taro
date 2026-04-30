@@ -31,6 +31,8 @@ type Coordinator struct {
 	wg       sync.WaitGroup
 	stopOnce sync.Once
 
+	lastPollTime time.Time
+
 	// Active transfers being polled
 	// map[entryID]*TransferInfo
 	activeTransfers sync.Map
@@ -40,6 +42,19 @@ type Coordinator struct {
 type TransferInfo struct {
 	TaskID            string
 	TransferStartedAt time.Time
+	LastStatus        string
+	LastError         string
+	LastCheckedAt     time.Time
+	TaskCreatedAt     time.Time
+	TaskUpdatedAt     time.Time
+}
+
+// TransferStatus represents a status response from taro-transfer.
+type TransferStatus struct {
+	Status    string
+	Error     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // NewCoordinator creates a new transfer coordinator
@@ -89,7 +104,7 @@ func (c *Coordinator) Submit(ctx context.Context, entryID string) error {
 			return fmt.Errorf("transfer service unreachable: %w", err)
 		}
 
-		switch status {
+		switch status.Status {
 		case "pending", "running":
 			// Task is active, add to polling queue
 			// Validate transfer_started_at exists
@@ -102,7 +117,7 @@ func (c *Coordinator) Submit(ctx context.Context, entryID string) error {
 				c.logger.Info("existing transfer task is active, resuming polling",
 					"entry_id", entryID,
 					"task_id", entry.TransferTaskID.String,
-					"status", status)
+					"status", status.Status)
 				c.addToPolling(entryID, entry.TransferTaskID.String, entry.TransferStartedAt.Time)
 				return nil
 			}
@@ -129,6 +144,10 @@ func (c *Coordinator) Submit(ctx context.Context, entryID string) error {
 	targetPath := c.generateTargetPath(entry)
 
 	// Create transfer task
+	if !entry.PikPakFilePath.Valid || entry.PikPakFilePath.String == "" {
+		return fmt.Errorf("entry missing pikpak_file_path for transfer")
+	}
+
 	taskID, err := c.createTransferTask(ctx, entry.PikPakFilePath.String, targetPath)
 	if err != nil {
 		c.logger.Error("failed to create transfer task",
@@ -287,12 +306,12 @@ func (c *Coordinator) createTransferTask(ctx context.Context, sourcePath, target
 }
 
 // getTransferStatus gets the status of a transfer task
-func (c *Coordinator) getTransferStatus(ctx context.Context, taskID string) (string, error) {
+func (c *Coordinator) getTransferStatus(ctx context.Context, taskID string) (*TransferStatus, error) {
 	url := fmt.Sprintf("%s/transfer/%s/status", strings.TrimSuffix(c.cfg.Transfer.URL, "/"), taskID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Add Authorization header
@@ -300,24 +319,42 @@ func (c *Coordinator) getTransferStatus(ctx context.Context, taskID string) (str
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
 	}
 
 	var respBody struct {
-		Status string `json:"status"`
-		Error  string `json:"error"`
+		Status    string `json:"status"`
+		Error     string `json:"error"`
+		CreatedAt string `json:"created_at"`
+		UpdatedAt string `json:"updated_at"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return respBody.Status, nil
+	status := &TransferStatus{
+		Status: respBody.Status,
+		Error:  respBody.Error,
+	}
+
+	if respBody.CreatedAt != "" {
+		if parsed, err := time.Parse(time.RFC3339, respBody.CreatedAt); err == nil {
+			status.CreatedAt = parsed
+		}
+	}
+	if respBody.UpdatedAt != "" {
+		if parsed, err := time.Parse(time.RFC3339, respBody.UpdatedAt); err == nil {
+			status.UpdatedAt = parsed
+		}
+	}
+
+	return status, nil
 }
 
 // StartPolling starts the polling goroutine
@@ -360,6 +397,7 @@ func (c *Coordinator) pollLoop() {
 
 // pollActiveTransfers polls all active transfers
 func (c *Coordinator) pollActiveTransfers() {
+	c.lastPollTime = time.Now()
 	c.activeTransfers.Range(func(key, value any) bool {
 		entryID := key.(string)
 
@@ -372,6 +410,11 @@ func (c *Coordinator) pollActiveTransfers() {
 
 		return true
 	})
+}
+
+// GetLastPollTime returns the last time polling ran.
+func (c *Coordinator) GetLastPollTime() time.Time {
+	return c.lastPollTime
 }
 
 // pollTransfer polls a single transfer task
@@ -426,7 +469,9 @@ func (c *Coordinator) pollTransfer(entryID string) error {
 		return nil
 	}
 
-	switch status {
+	c.updateTransferInfo(entryID, status)
+
+	switch status.Status {
 	case "done":
 		// Transfer completed
 		c.logger.Info("transfer completed",
@@ -493,7 +538,7 @@ func (c *Coordinator) pollTransfer(entryID string) error {
 		c.logger.Debug("transfer in progress",
 			"entry_id", entryID,
 			"task_id", taskID,
-			"status", status)
+			"status", status.Status)
 	}
 
 	return nil
@@ -520,6 +565,50 @@ func (c *Coordinator) addToPolling(entryID, taskID string, transferStartedAt tim
 		"entry_id", entryID,
 		"task_id", taskID,
 		"transfer_started_at", transferStartedAt)
+}
+
+// GetActiveTransfers returns a snapshot of active transfers keyed by entry ID.
+func (c *Coordinator) GetActiveTransfers() map[string]TransferInfo {
+	snapshot := make(map[string]TransferInfo)
+	c.activeTransfers.Range(func(key, value any) bool {
+		entryID, ok := key.(string)
+		if !ok {
+			return true
+		}
+		info, ok := value.(*TransferInfo)
+		if !ok || info == nil {
+			return true
+		}
+		snapshot[entryID] = *info
+		return true
+	})
+	return snapshot
+}
+
+func (c *Coordinator) updateTransferInfo(entryID string, status *TransferStatus) {
+	if status == nil {
+		return
+	}
+
+	value, ok := c.activeTransfers.Load(entryID)
+	if !ok {
+		return
+	}
+
+	info, ok := value.(*TransferInfo)
+	if !ok || info == nil {
+		return
+	}
+
+	info.LastStatus = status.Status
+	info.LastError = status.Error
+	info.LastCheckedAt = time.Now()
+	if !status.CreatedAt.IsZero() {
+		info.TaskCreatedAt = status.CreatedAt
+	}
+	if !status.UpdatedAt.IsZero() {
+		info.TaskUpdatedAt = status.UpdatedAt
+	}
 }
 
 // removeFromPolling removes an entry from the polling queue

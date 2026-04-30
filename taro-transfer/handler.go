@@ -63,8 +63,10 @@ type CreateTransferResponse struct {
 
 // GetTransferStatusResponse represents the response for getting transfer status
 type GetTransferStatusResponse struct {
-	Status string `json:"status"` // "pending" | "running" | "done" | "failed" | "not_found"
-	Error  string `json:"error,omitempty"`
+	Status    string `json:"status"` // "pending" | "running" | "done" | "failed" | "not_found"
+	Error     string `json:"error,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
 // CreateTransfer handles POST /transfer
@@ -137,8 +139,10 @@ func (h *Handler) GetTransferStatus(w http.ResponseWriter, r *http.Request) {
 
 	// Return task status
 	resp := GetTransferStatusResponse{
-		Status: string(state.Status),
-		Error:  state.ErrorMessage,
+		Status:    string(state.Status),
+		Error:     state.ErrorMessage,
+		CreatedAt: state.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: state.UpdatedAt.Format(time.RFC3339),
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

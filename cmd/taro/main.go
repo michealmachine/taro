@@ -16,6 +16,7 @@ import (
 	"github.com/michealmachine/taro/internal/db"
 	"github.com/michealmachine/taro/internal/downloader"
 	"github.com/michealmachine/taro/internal/health"
+	"github.com/michealmachine/taro/internal/monitor"
 	"github.com/michealmachine/taro/internal/notifier"
 	"github.com/michealmachine/taro/internal/platform"
 	"github.com/michealmachine/taro/internal/poller"
@@ -25,6 +26,7 @@ import (
 	"github.com/michealmachine/taro/internal/state"
 	"github.com/michealmachine/taro/internal/transfer"
 	"github.com/michealmachine/taro/internal/web"
+	"github.com/michealmachine/taro/internal/web/handlers"
 	"github.com/michealmachine/taro/internal/webhook"
 )
 
@@ -43,6 +45,7 @@ func main() {
 }
 
 func run(configPath string) error {
+	startTime := time.Now()
 	// ========================================
 	// 4.2.1 配置加载与日志初始化
 	// ========================================
@@ -217,6 +220,7 @@ func run(configPath string) error {
 	var sched *scheduler.Scheduler
 
 	// Initialize scheduler
+	monitor := monitor.NewTaskMonitor()
 	sched = scheduler.NewScheduler(cfg, database, logger, &scheduler.TaskHandlers{
 		OnPendingTask: func(ctx context.Context) error {
 			// Process pending entries (trigger search)
@@ -302,7 +306,11 @@ func run(configPath string) error {
 			}
 
 			for _, entry := range entries {
-				if time.Since(entry.UpdatedAt) > selectionTimeout {
+				baseline := entry.UpdatedAt
+				if entry.SearchStartedAt.Valid {
+					baseline = entry.SearchStartedAt.Time
+				}
+				if time.Since(baseline) > selectionTimeout {
 					logger.Info("selection timeout, auto-selecting best resource", "entry_id", entry.ID)
 
 					// Get all eligible resources for this entry
@@ -372,6 +380,7 @@ func run(configPath string) error {
 			return gc.RunGC(ctx)
 		},
 	})
+	sched.SetMonitor(monitor)
 	logger.Info("scheduler initialized")
 
 	// ========================================
@@ -412,9 +421,18 @@ func run(configPath string) error {
 	gc.Start(ctx)
 	logger.Info("garbage collector started")
 
-	// Start HTTP server (webhook + health check + entry management)
-	// Full WebUI will be implemented in Task 6.2
-	httpServer := web.NewServer(cfg.Server.Port, jellyfinHandler, actionService, logger)
+	// Start HTTP server (webhook + WebUI)
+	statusHandler := handlers.NewStatusHandler(
+		database,
+		oneDriveChecker,
+		transferCoordinator,
+		monitor,
+		startTime,
+		transferCoordinator.GetLastPollTime,
+		pikpakDownloader.GetLastPollTime,
+	)
+
+	httpServer := web.NewServer(cfg.Server.Port, jellyfinHandler, actionService, database, statusHandler, logger)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

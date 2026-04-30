@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/michealmachine/taro/internal/db"
 	"github.com/michealmachine/taro/internal/service"
 	"github.com/michealmachine/taro/internal/web/handlers"
 	"github.com/michealmachine/taro/internal/webhook"
@@ -19,15 +20,23 @@ type Server struct {
 	server         *http.Server
 	webhookHandler *webhook.JellyfinHandler
 	entriesHandler *handlers.EntriesHandler
+	entriesList    *handlers.EntriesListHandler
+	entryDetail    *handlers.EntryDetailHandler
+	pendingHandler *handlers.PendingHandler
+	statusHandler  *handlers.StatusHandler
 	logger         *slog.Logger
 }
 
 // NewServer creates a new HTTP server
-func NewServer(port int, webhookHandler *webhook.JellyfinHandler, actionService *service.ActionService, logger *slog.Logger) *Server {
+func NewServer(port int, webhookHandler *webhook.JellyfinHandler, actionService *service.ActionService, database *db.DB, statusHandler *handlers.StatusHandler, logger *slog.Logger) *Server {
 	return &Server{
 		port:           port,
 		webhookHandler: webhookHandler,
 		entriesHandler: handlers.NewEntriesHandler(actionService, logger),
+		entriesList:    handlers.NewEntriesListHandler(database),
+		entryDetail:    handlers.NewEntryDetailHandler(database),
+		pendingHandler: handlers.NewPendingHandler(database),
+		statusHandler:  statusHandler,
 		logger:         logger,
 	}
 }
@@ -39,11 +48,27 @@ func (s *Server) Start(ctx context.Context) error {
 	// Health check endpoint (required for Docker healthcheck)
 	mux.HandleFunc("GET /health", s.handleHealth)
 
+	// Root redirect
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/entries", http.StatusSeeOther)
+	})
+
 	// Jellyfin webhook endpoint (required for transferred -> in_library transition)
 	mux.HandleFunc("POST /webhook/jellyfin", s.webhookHandler.HandleJellyfin)
 
 	// Entry management endpoints (Task 6.2.2)
 	mux.HandleFunc("POST /entries", s.entriesHandler.HandleAddEntry)
+	mux.HandleFunc("GET /entries", s.entriesList.HandleEntries)
+	mux.HandleFunc("GET /entries/{id}", s.entryDetail.HandleEntryDetail)
+	mux.HandleFunc("POST /entries/{id}/retry", s.entriesHandler.HandleRetry)
+	mux.HandleFunc("POST /entries/{id}/cancel", s.entriesHandler.HandleCancel)
+	mux.HandleFunc("POST /entries/{id}/select", s.entriesHandler.HandleSelect)
+
+	// Pending selection
+	mux.HandleFunc("GET /pending", s.pendingHandler.HandlePending)
+
+	// System status
+	mux.HandleFunc("GET /status", s.statusHandler.HandleStatus)
 
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", s.port),

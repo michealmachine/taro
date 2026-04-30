@@ -9,6 +9,7 @@ import (
 
 	"github.com/michealmachine/taro/internal/config"
 	"github.com/michealmachine/taro/internal/db"
+	"github.com/michealmachine/taro/internal/monitor"
 	"github.com/robfig/cron/v3"
 )
 
@@ -42,6 +43,8 @@ type Scheduler struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	monitor *monitor.TaskMonitor
 }
 
 // TaskHandlers contains all task handler functions
@@ -89,6 +92,11 @@ func NewScheduler(cfg *config.Config, database *db.DB, logger *slog.Logger, hand
 	}
 
 	return s
+}
+
+// SetMonitor attaches a task monitor for observability.
+func (s *Scheduler) SetMonitor(m *monitor.TaskMonitor) {
+	s.monitor = m
 }
 
 // Start starts the scheduler
@@ -223,9 +231,18 @@ func (s *Scheduler) registerTasks() error {
 // wrapTask wraps a task function with error handling and panic recovery
 func (s *Scheduler) wrapTask(name string, fn func(context.Context) error) func() {
 	return func() {
+		if s.monitor != nil {
+			s.monitor.Start(name)
+		}
+
+		var taskErr error
 		defer func() {
 			if r := recover(); r != nil {
 				s.logger.Error("task panicked", "task", name, "panic", r)
+				taskErr = fmt.Errorf("panic: %v", r)
+			}
+			if s.monitor != nil {
+				s.monitor.Finish(name, taskErr)
 			}
 		}()
 
@@ -234,6 +251,7 @@ func (s *Scheduler) wrapTask(name string, fn func(context.Context) error) func()
 
 		if err := fn(ctx); err != nil {
 			s.logger.Error("task failed", "task", name, "error", err)
+			taskErr = err
 		}
 	}
 }

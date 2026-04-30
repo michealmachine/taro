@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -178,6 +179,76 @@ func (db *DB) ListEntriesByStatus(ctx context.Context, status string) ([]*Entry,
 	}
 
 	return entries, nil
+}
+
+// ListEntriesByStatuses lists entries matching any of the provided statuses.
+// Optional limit (<=0 means no limit). Order by updated_at desc.
+func (db *DB) ListEntriesByStatuses(ctx context.Context, statuses []string, limit int) ([]*Entry, error) {
+	if len(statuses) == 0 {
+		return []*Entry{}, nil
+	}
+
+	placeholders := make([]string, 0, len(statuses))
+	args := make([]interface{}, 0, len(statuses))
+	for _, status := range statuses {
+		placeholders = append(placeholders, "?")
+		args = append(args, status)
+	}
+
+	query := fmt.Sprintf("SELECT * FROM entries WHERE status IN (%s) ORDER BY updated_at DESC", strings.Join(placeholders, ","))
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	var entries []*Entry
+	if err := db.SelectContext(ctx, &entries, query, args...); err != nil {
+		return nil, fmt.Errorf("failed to list entries by statuses: %w", err)
+	}
+
+	return entries, nil
+}
+
+// ListEntriesByStatusLimited lists entries by status with a limit, ordered by updated_at desc.
+func (db *DB) ListEntriesByStatusLimited(ctx context.Context, status string, limit int) ([]*Entry, error) {
+	query := `SELECT * FROM entries WHERE status = ? ORDER BY updated_at DESC`
+	args := []interface{}{status}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	var entries []*Entry
+	if err := db.SelectContext(ctx, &entries, query, args...); err != nil {
+		return nil, fmt.Errorf("failed to list entries by status: %w", err)
+	}
+
+	return entries, nil
+}
+
+// CountEntriesByStatus returns a map of status to count.
+func (db *DB) CountEntriesByStatus(ctx context.Context) (map[string]int, error) {
+	rows, err := db.QueryxContext(ctx, `SELECT status, COUNT(*) AS count FROM entries GROUP BY status`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count entries by status: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan status count: %w", err)
+		}
+		counts[status] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate status counts: %w", err)
+	}
+
+	return counts, nil
 }
 
 // EntryExists checks if an entry exists by source and source_id

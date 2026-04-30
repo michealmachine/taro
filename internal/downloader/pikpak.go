@@ -32,6 +32,8 @@ type PikPakDownloader struct {
 	stopChan     chan struct{}
 	stopOnce     sync.Once
 	wg           sync.WaitGroup
+
+	lastPollTime time.Time
 }
 
 // PollingTask represents a task being polled
@@ -231,6 +233,13 @@ func (d *PikPakDownloader) StartPolling(ctx context.Context) {
 	d.logger.Info("started pikpak polling")
 }
 
+// GetLastPollTime returns the last time polling ran.
+func (d *PikPakDownloader) GetLastPollTime() time.Time {
+	d.queueMu.RLock()
+	defer d.queueMu.RUnlock()
+	return d.lastPollTime
+}
+
 // Stop stops the polling goroutine
 func (d *PikPakDownloader) Stop() {
 	d.stopOnce.Do(func() {
@@ -304,6 +313,10 @@ func (d *PikPakDownloader) pollingLoop(ctx context.Context) {
 
 // pollTasks polls all tasks in the queue
 func (d *PikPakDownloader) pollTasks(ctx context.Context) {
+	d.queueMu.Lock()
+	d.lastPollTime = time.Now()
+	d.queueMu.Unlock()
+
 	d.queueMu.RLock()
 	tasks := make([]*PollingTask, 0, len(d.pollingQueue))
 	for _, task := range d.pollingQueue {

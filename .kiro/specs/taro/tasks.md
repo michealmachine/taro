@@ -297,7 +297,7 @@
     - _需求：8.3, 8.4, 8.6, 11.4_
 
   - [ ] 6.2 实现 WebUI 模板和路由（internal/web/）
-    - [ ] 6.2.1 创建 templ 模板文件（templates/）
+    - [x] 6.2.1 创建 templ 模板文件（templates/）
       - `layout.templ`：基础布局（引入 HTMX CDN）
       - `entries.templ`：条目列表页（按状态分组，HTMX 每 30 秒自动刷新）
       - `entry_detail.templ`：条目详情页（显示状态历史、失败原因、重试按钮）
@@ -306,7 +306,7 @@
       - `add_entry.templ`：手动添加条目表单
       - _需求：9.2, 9.3, 9.4, 9.5, 9.6_
 
-    - [ ] 6.2.2 实现 HTTP handlers（handlers/）
+    - [x] 6.2.2 实现 HTTP handlers（handlers/）
       - [ ] `entries.go`：
         - GET /entries：列表页（支持按状态筛选、分页）
         - GET /entries/{id}：详情页（显示状态历史、失败原因）
@@ -320,7 +320,7 @@
       - 所有写操作通过 ActionService 执行（不直接调用 StateMachine）
       - _需求：9.2, 9.3, 9.4, 9.5, 9.6_
 
-    - [ ] 6.2.3 实现 HTTP 服务器（server.go）
+    - [x] 6.2.3 实现 HTTP 服务器（server.go）
       - 注册所有路由（使用 Go 1.22 标准库路由）
       - 注册 Jellyfin webhook 路由（POST /webhook/jellyfin）
       - 实现 GET /health 端点：返回 DB 连接状态、OneDrive 挂载状态、系统运行时间

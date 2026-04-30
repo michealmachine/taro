@@ -57,6 +57,24 @@ func (db *DB) ListStateLogsByEntry(ctx context.Context, entryID string) ([]*Stat
 	return logs, nil
 }
 
+// ListRecentStateLogs returns recent state logs ordered by created_at desc.
+// limit <= 0 means no limit.
+func (db *DB) ListRecentStateLogs(ctx context.Context, limit int) ([]*StateLog, error) {
+	query := `SELECT * FROM state_logs ORDER BY created_at DESC`
+	args := []interface{}{}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	var logs []*StateLog
+	if err := db.SelectContext(ctx, &logs, query, args...); err != nil {
+		return nil, fmt.Errorf("failed to list recent state logs: %w", err)
+	}
+
+	return logs, nil
+}
+
 // DeleteStateLogsByEntry deletes all state logs for an entry
 func (db *DB) DeleteStateLogsByEntry(ctx context.Context, entryID string) error {
 	query := `DELETE FROM state_logs WHERE entry_id = ?`

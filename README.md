@@ -34,8 +34,8 @@ Bangumi / Trakt 收藏
 | taro-transfer 子服务 | ✅ 完成 | 部署在 HuggingFace Space |
 | 调度器与主服务集成 | ✅ 完成 | |
 | 单元测试 | ✅ 完成 | 状态机、去重、Webhook 匹配、智能重试、GC |
-| Checkpoint - 核心流程验证 | 🔄 进行中 | 端到端测试中 |
-| WebUI | ⏳ 待开发 | templ + HTMX |
+| Checkpoint - 核心流程验证 | 🔄 进行中 | 端到端测试中，已补本地 WebUI 验证 |
+| WebUI | 🔄 进行中 | 调试型 WebUI 已落地：entries / detail / pending / status |
 | Telegram Bot | ⏳ 待开发 | |
 | CLI (taroctl) | ⏳ 待开发 | |
 
@@ -142,7 +142,14 @@ http://your-taro-host:8090/webhook/jellyfin
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | /health | 健康检查 |
+| GET | /entries | 条目列表 WebUI |
+| GET | /entries/{id} | 条目详情 WebUI |
+| GET | /pending | 待选择队列 WebUI |
+| GET | /status | 系统状态 WebUI |
 | POST | /entries | 手动添加条目 |
+| POST | /entries/{id}/retry | 重试失败条目 |
+| POST | /entries/{id}/cancel | 取消条目 |
+| POST | /entries/{id}/select | 选择资源 |
 | POST | /webhook/jellyfin | Jellyfin 入库回调 |
 
 **POST /entries 示例：**
